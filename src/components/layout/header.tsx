@@ -1,6 +1,8 @@
 'use client'
 
-import { User, LogOut, ChevronDown, Moon, Sun } from 'lucide-react'
+import { LogOut, ChevronDown, Moon, Sun } from 'lucide-react'
+import { useOnlineConnection } from '@/lib/production-board'
+import { createClient } from '@/lib/supabase/client'
 import { usePathname } from 'next/navigation'
 import { useState, useSyncExternalStore } from 'react'
 
@@ -51,6 +53,7 @@ function ThemeToggle() {
 }
 
 export default function Header() {
+  const {profile}=useOnlineConnection()
   const pathname = usePathname()
   const [showMenu, setShowMenu] = useState(false)
 
@@ -78,23 +81,18 @@ export default function Header() {
             className="flex items-center gap-2.5 rounded-xl border border-slate-200 px-3 py-1.5 hover:bg-slate-50 transition-colors"
           >
             <div className="flex h-7 w-7 items-center justify-center rounded-full bg-blue-100 text-blue-700 text-xs font-bold">
-              SA
+              {profile?.full_name.slice(0,2).toUpperCase() ?? '…'}
             </div>
             <div className="hidden sm:block text-left">
-              <p className="text-xs font-semibold text-slate-900 leading-none">Super Admin</p>
-              <p className="text-xs text-slate-400 leading-none mt-0.5">superadmin</p>
+              <p className="text-xs font-semibold text-slate-900 leading-none">{profile?.full_name ?? 'Akun'}</p>
+              <p className="text-xs text-slate-400 leading-none mt-0.5">{profile?.role ?? 'Memuat profil'}</p>
             </div>
             <ChevronDown className="h-4 w-4 text-slate-400" />
           </button>
 
           {showMenu && (
             <div className="absolute right-0 mt-2 w-48 rounded-xl border border-slate-200 bg-white py-1 shadow-lg">
-              <button className="flex w-full items-center gap-2 px-4 py-2 text-sm text-slate-600 hover:bg-slate-50">
-                <User className="h-4 w-4" />
-                Profil Saya
-              </button>
-              <hr className="my-1 border-slate-100" />
-              <button className="flex w-full items-center gap-2 px-4 py-2 text-sm text-red-600 hover:bg-red-50">
+              <button onClick={async()=>{await createClient().auth.signOut();window.location.assign('/login')}} className="flex w-full items-center gap-2 px-4 py-2 text-sm text-red-600 hover:bg-red-50">
                 <LogOut className="h-4 w-4" />
                 Keluar
               </button>

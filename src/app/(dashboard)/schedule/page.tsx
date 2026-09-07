@@ -31,7 +31,7 @@ export default function ProductionBoardPage() {
 
   const ordersByStage = useMemo(() => Object.fromEntries(STAGES.map((stage) => [stage.id, orders.filter((order) => order.stage === stage.id)])) as Record<StageId, BoardOrder[]>, [orders])
 
-  function moveOrder(orderId: string, stage: StageId) {
+  async function moveOrder(orderId: string, stage: StageId) {
     const sourceOrder = orders.find(item => item.id === orderId)
     if (!sourceOrder || sourceOrder.stage === stage) return
     if (stage === 'archive') {
@@ -40,22 +40,21 @@ export default function ProductionBoardPage() {
       else setNotice('Pindahkan order ke Done terlebih dahulu sebelum mengonfirmasi penyerahan barang.')
       return
     }
-    if (moveOrderToStage(orderId, stage)) setNotice('')
-    else setNotice('Perpindahan ditolak. Order hanya boleh dipindahkan satu tahap ke proses berikutnya atau sebelumnya, tanpa melompati proses.')
+    try { if (await moveOrderToStage(orderId, stage)) setNotice('')
+    else setNotice('Perpindahan ditolak. Order hanya boleh dipindahkan satu tahap ke proses berikutnya atau sebelumnya, tanpa melompati proses.') } catch { setNotice('Perubahan belum tersimpan. Periksa pesan koneksi lalu coba lagi.') }
   }
 
   function handleDrop(event: DragEvent<HTMLDivElement>, stage: StageId) {
     event.preventDefault()
     const orderId = event.dataTransfer.getData('text/plain') || draggedId
-    if (orderId) moveOrder(orderId, stage)
+    if (orderId) void moveOrder(orderId, stage)
     setDraggedId(null)
     setDragOverStage(null)
   }
 
-  function confirmDelete() {
+  async function confirmDelete() {
     if (!pendingDelete) return
-    deleteOrder(pendingDelete.id)
-    setPendingDelete(null)
+    try { await deleteOrder(pendingDelete.id); setPendingDelete(null) } catch { setNotice('Order belum dihapus. Periksa pesan koneksi.') }
   }
 
   return (
@@ -122,7 +121,7 @@ export default function ProductionBoardPage() {
                         </div>
                         <p className={cn('mt-2 text-[11px] font-medium', overdue ? 'board-due-overdue' : 'text-slate-500')}>{overdue && '⚠ '}Due: {formatDueDate(order.dueAt, completed ? 'completed' : 'active')}</p>
                         {stage.id === 'done' && <button type="button" onPointerDown={event => event.stopPropagation()} onClick={() => { setPendingArchive(order); setDeliveryMethod('pickup'); setArchiveError('') }} className="mt-3 flex w-full items-center justify-center gap-2 rounded-lg border border-emerald-200 bg-white px-3 py-2 text-xs font-bold text-emerald-700"><Archive className="h-4 w-4" /> Arsipkan</button>}
-                        {stage.id === 'archive' && <><p className="mt-3 text-xs font-medium text-emerald-600">{order.deliveryMethod === 'pickup' ? 'Sudah diambil pembeli' : order.deliveryMethod === 'delivery' ? 'Sudah dikirim / diterima' : 'Penyerahan tercatat'}</p><button type="button" onClick={() => { try { if (finishArchivedOrder(order.id)) setNotice(`${order.spkCode} tersimpan di Laporan Arsip dengan tanggal hari ini (WIB).`); else setNotice('Order sudah diselesaikan atau data penyerahannya belum lengkap.') } catch { setNotice('Laporan belum tersimpan. Periksa penyimpanan browser lalu coba lagi.') } }} className="mt-3 flex w-full items-center justify-center gap-2 rounded-lg bg-blue-600 px-3 py-2 text-xs font-bold text-white hover:bg-blue-700"><Check className="h-4 w-4" /> Selesai</button></>}
+                        {stage.id === 'archive' && <><p className="mt-3 text-xs font-medium text-emerald-600">{order.deliveryMethod === 'pickup' ? 'Sudah diambil pembeli' : order.deliveryMethod === 'delivery' ? 'Sudah dikirim / diterima' : 'Penyerahan tercatat'}</p><button type="button" onClick={async () => { try { if (await finishArchivedOrder(order.id)) setNotice(`${order.spkCode} tersimpan di Laporan Arsip dengan tanggal hari ini (WIB).`); else setNotice('Order sudah diselesaikan atau data penyerahannya belum lengkap.') } catch { setNotice('Laporan belum tersimpan. Periksa koneksi database lalu coba lagi.') } }} className="mt-3 flex w-full items-center justify-center gap-2 rounded-lg bg-blue-600 px-3 py-2 text-xs font-bold text-white hover:bg-blue-700"><Check className="h-4 w-4" /> Selesai</button></>}
                       </article>
                     )
                   })}
@@ -142,7 +141,7 @@ export default function ProductionBoardPage() {
           <label className="mt-5 block text-sm font-medium text-slate-700">Penyerahan barang<select autoFocus value={deliveryMethod} onChange={event => setDeliveryMethod(event.target.value as DeliveryMethod)} className="mt-2 w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5"><option value="pickup">Diambil pembeli</option><option value="delivery">Sudah dikirim</option></select></label>
           <p className="mt-3 text-xs leading-5 text-slate-500">Pastikan barang sudah diserahkan. Order akan tampil di kolom Arsip. Setelah itu, tombol Selesai menyimpannya ke Laporan Arsip dan mengeluarkannya dari board.</p>
           {archiveError && <p role="alert" className="mt-3 text-sm text-red-600">{archiveError}</p>}
-          <div className="mt-6 flex justify-end gap-3"><button type="button" onClick={() => setPendingArchive(null)} className="rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-600">Batal</button><button type="button" onClick={() => { try { if (archiveOrder(pendingArchive.id, deliveryMethod)) setPendingArchive(null); else setArchiveError('Order harus berada di Done dan belum diarsipkan. Periksa kembali board.'); } catch { setArchiveError('Arsip belum tersimpan. Periksa ruang penyimpanan browser lalu coba lagi.') } }} className="rounded-xl bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white">Simpan ke Arsip</button></div>
+          <div className="mt-6 flex justify-end gap-3"><button type="button" onClick={() => setPendingArchive(null)} className="rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-600">Batal</button><button type="button" onClick={async () => { try { if (await archiveOrder(pendingArchive.id, deliveryMethod)) setPendingArchive(null); else setArchiveError('Order harus berada di Done dan belum diarsipkan. Periksa kembali board.'); } catch { setArchiveError('Arsip belum tersimpan. Periksa koneksi database lalu coba lagi.') } }} className="rounded-xl bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white">Simpan ke Arsip</button></div>
         </div>
       </div>}
 

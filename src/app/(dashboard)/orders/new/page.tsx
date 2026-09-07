@@ -1,20 +1,22 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useRef } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { ArrowLeft } from 'lucide-react'
+import { jakartaDate } from '@/lib/process-metrics'
 import { addOrder } from '@/lib/production-board'
 
 const PRODUCTION_TYPES = ['Sublim', 'DTF', 'Umbul-umbul', 'Batik', 'Jersey']
 export default function NewOrderPage() {
   const router = useRouter()
+  const requestId = useRef<string | null>(null)
   const [form, setForm] = useState({
     customer: '',
     productionType: '',
     meter: '',
     customerType: 'regular',
-    orderDate: new Date().toISOString().split('T')[0],
+    orderDate: jakartaDate(new Date()),
     dueDate: '',
     notes: '',
   })
@@ -23,9 +25,10 @@ export default function NewOrderPage() {
     setForm(f => ({ ...f, [e.target.name]: e.target.value }))
   }
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    addOrder({
+    requestId.current ??= crypto.randomUUID()
+    try { await addOrder({
       customerName: form.customer.trim(),
       productionType: form.productionType,
       meter: Number(form.meter),
@@ -33,7 +36,7 @@ export default function NewOrderPage() {
       orderDate: form.orderDate,
       dueDate: form.dueDate,
       notes: form.notes.trim(),
-    })
+    }, requestId.current) } catch { return }
     router.replace('/schedule')
   }
 

@@ -1,8 +1,9 @@
 import { login } from './actions'
 
-export default function LoginPage() {
+export default async function LoginPage({searchParams}:{searchParams:Promise<{error?:string}>}) {
+  const {error}=await searchParams
   return (
-    <div className="flex min-h-screen items-center justify-center bg-[#F4F6F9] px-4 py-12 sm:px-6 lg:px-8">
+    <div className="flex min-h-screen items-center justify-center bg-[var(--background)] px-4 py-12 sm:px-6 lg:px-8">
       <div className="w-full max-w-md space-y-8 rounded-2xl bg-white p-8 shadow-sm border border-slate-200">
         <div>
           <h2 className="text-center text-3xl font-bold tracking-tight text-slate-900">
@@ -12,6 +13,7 @@ export default function LoginPage() {
             Order Monitoring System
           </p>
         </div>
+        {error && <p role="alert" className="text-sm text-red-600">Login gagal. Periksa email, password, dan koneksi lalu coba lagi.</p>}
         <form className="mt-8 space-y-6" action={login}>
           <div className="-space-y-px rounded-md shadow-sm gap-4 flex flex-col">
             <div>

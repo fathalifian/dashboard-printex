@@ -31,9 +31,9 @@ export default function EditOrderPage() {
     setDraft({ ...form, [field]: value })
   }
 
-  function handleSubmit(event: FormEvent) {
+  async function handleSubmit(event: FormEvent) {
     event.preventDefault()
-    updateOrder(id, form)
+    try { await updateOrder(id, form) } catch { return }
     window.location.replace(new URL('/schedule', window.location.origin).toString())
   }
 

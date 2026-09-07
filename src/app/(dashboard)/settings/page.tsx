@@ -9,44 +9,44 @@ export default function SettingsPage() {
       </div>
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-        <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm hover:shadow-md transition-shadow cursor-pointer">
+        <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm ">
           <div className="flex items-center gap-3 mb-3">
             <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-50">
               <Users className="h-5 w-5 text-blue-600" />
             </div>
             <h3 className="text-sm font-semibold text-slate-900">Manajemen User</h3>
           </div>
-          <p className="text-xs text-slate-500">Tambah, ubah, dan nonaktifkan akun staf. Kelola role dan permission setiap user.</p>
+          <p className="text-xs text-slate-500">Akun staf dikelola melalui Supabase Authentication dan tabel profiles oleh admin. Akses baru harus diaktifkan secara manual.</p>
         </div>
 
-        <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm hover:shadow-md transition-shadow cursor-pointer">
+        <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm ">
           <div className="flex items-center gap-3 mb-3">
             <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-violet-50">
               <Cog className="h-5 w-5 text-violet-600" />
             </div>
             <h3 className="text-sm font-semibold text-slate-900">Mesin Produksi</h3>
           </div>
-          <p className="text-xs text-slate-500">Konfigurasi mesin, kecepatan produksi, dan waktu setup untuk jadwal otomatis.</p>
+          <p className="text-xs text-slate-500">Pengaturan mesin dan penjadwalan otomatis belum tersedia.</p>
         </div>
 
-        <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm hover:shadow-md transition-shadow cursor-pointer">
+        <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm ">
           <div className="flex items-center gap-3 mb-3">
             <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-50">
               <Database className="h-5 w-5 text-emerald-600" />
             </div>
             <h3 className="text-sm font-semibold text-slate-900">Import Data CSV</h3>
           </div>
-          <p className="text-xs text-slate-500">Upload dan import data order dari file CSV. Mendukung mapping kolom dan deteksi duplikat.</p>
+          <p className="text-xs text-slate-500">Pindahkan data browser lama melalui tombol impor di bagian atas. Impor CSV belum tersedia.</p>
         </div>
 
-        <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm hover:shadow-md transition-shadow cursor-pointer">
+        <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm ">
           <div className="flex items-center gap-3 mb-3">
             <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-amber-50">
               <Shield className="h-5 w-5 text-amber-600" />
             </div>
             <h3 className="text-sm font-semibold text-slate-900">Produksi Steps</h3>
           </div>
-          <p className="text-xs text-slate-500">Konfigurasi tahapan produksi. Tambahkan step baru seperti RIP, QC, Administrasi di masa depan.</p>
+          <p className="text-xs text-slate-500">Enam tahap di bawah adalah alur tetap aplikasi. Penambahan tahap memerlukan pembaruan aplikasi dan database.</p>
         </div>
       </div>
 

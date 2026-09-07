@@ -3,8 +3,8 @@
 import { useParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { ArrowLeft, AlertTriangle, Phone, CheckCircle2, Circle, Loader2, Pencil, Trash2 } from 'lucide-react'
-import { MOCK_STEPS } from '@/lib/mock-data'
-import { deleteOrder, useAllOrders } from '@/lib/production-board'
+import { PROCESS_STAGES } from '@/lib/process-metrics'
+import { deleteOrder, useAllOrders, useProcessHistory, BOARD_STAGE_META } from '@/lib/production-board'
 import { StatusBadge, CustomerTypeBadge } from '@/components/ui/badges'
 import { formatDate, formatDueDate, isOverdue } from '@/lib/utils'
 import { cn } from '@/lib/utils'
@@ -13,18 +13,11 @@ const STEP_COLORS: Record<string, string> = {
   ORDER_IN: 'slate', DESIGN: 'red', DESIGN_DONE: 'blue', PRINTING: 'amber', DONE: 'emerald', ARCHIVE: 'slate',
 }
 
-function getStepState(order: { current_step: { code: string }; order_state: string }, stepCode: string) {
-  const currentIdx = MOCK_STEPS.findIndex(s => s.code === order.current_step.code)
-  const stepIdx = MOCK_STEPS.findIndex(s => s.code === stepCode)
-  if (stepIdx < currentIdx || (order.order_state === 'completed' && stepCode === order.current_step.code)) return 'completed'
-  if (stepIdx === currentIdx) return 'active'
-  return 'pending'
-}
-
 export default function OrderDetailPage() {
   const { id } = useParams()
   const router = useRouter()
   const order = useAllOrders().find(o => o.id === id)
+  const history = useProcessHistory().filter(event => event.orderId === id)
 
   if (!order) {
     return (
@@ -37,10 +30,9 @@ export default function OrderDetailPage() {
 
   const overdue = isOverdue(order.due_at, order.order_state)
 
-  function handleDelete() {
+  async function handleDelete() {
     if (!window.confirm(`Hapus order ${order?.spk_code}? Tindakan ini akan menghilangkan order dari seluruh halaman.`)) return
-    deleteOrder(String(id))
-    router.replace('/schedule')
+    try { await deleteOrder(String(id)); router.replace('/schedule') } catch { /* Connection banner displays the error. */ }
   }
 
   return (
@@ -121,9 +113,11 @@ export default function OrderDetailPage() {
           <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
             <h3 className="text-sm font-semibold text-slate-900 mb-4">Timeline Produksi</h3>
             <div className="space-y-0">
-              {MOCK_STEPS.map((step, idx) => {
-                const state = getStepState(order, step.code)
-                const isLast = idx === MOCK_STEPS.length - 1
+              {PROCESS_STAGES.map((stage, idx) => {
+                const step = BOARD_STAGE_META[stage]
+                const completed = stage === 'archive' ? !!order.archive?.finalizedAt : history.some(event => event.stage === stage && event.kind === 'completed')
+                const state = completed ? 'completed' : order.board_stage === stage ? 'active' : 'pending'
+                const isLast = idx === PROCESS_STAGES.length - 1
                 return (
                   <div key={step.code} className="flex gap-4">
                     <div className="flex flex-col items-center">

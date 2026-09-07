@@ -1,289 +1,146 @@
 'use client'
 
 import { useSyncExternalStore } from 'react'
-import { MOCK_ORDERS } from '@/lib/mock-data'
-import { jakartaDate, PROCESS_STAGES, transitionEvents, type ProcessEvent } from '@/lib/process-metrics'
+import { createClient } from '@/lib/supabase/client'
+import { PROCESS_STAGES, type ProcessEvent } from '@/lib/process-metrics'
+import { readLegacyData } from '@/lib/legacy-import'
 
-export type BoardStageId = 'incoming' | 'design' | 'design_done' | 'printing' | 'done' | 'archive'
-
-export const BOARD_STAGE_META: Record<BoardStageId, { code: string; name: string; color: string; orderState: string }> = {
-  incoming: { code: 'ORDER_IN', name: 'Order Masuk', color: 'slate', orderState: 'active' },
-  design: { code: 'DESIGN', name: 'Proses Design', color: 'red', orderState: 'active' },
-  design_done: { code: 'DESIGN_DONE', name: 'Design Done', color: 'blue', orderState: 'active' },
-  printing: { code: 'PRINTING', name: 'Proses Cetak', color: 'amber', orderState: 'active' },
-  done: { code: 'DONE', name: 'Done', color: 'emerald', orderState: 'completed' },
-  archive: { code: 'ARCHIVE', name: 'Arsip', color: 'slate', orderState: 'completed' },
-}
-
-const STORAGE_KEY = 'printex-production-board-v2'
-const EDITS_STORAGE_KEY = 'printex-order-edits-v1'
-const DELETED_STORAGE_KEY = 'printex-deleted-orders-v1'
-const CREATED_STORAGE_KEY = 'printex-created-orders-v1'
-const HISTORY_STORAGE_KEY = 'printex-process-history-v1'
-const ARCHIVE_STORAGE_KEY = 'printex-archived-orders-v1'
-// One explicit reset requested by the user. Never rotate this key by date.
-const RESET_KEY = 'printex-fresh-ten-orders-20260907-v1'
-const STATE_KEYS = [STORAGE_KEY, EDITS_STORAGE_KEY, DELETED_STORAGE_KEY, CREATED_STORAGE_KEY, HISTORY_STORAGE_KEY, ARCHIVE_STORAGE_KEY]
+export type BoardStageId = typeof PROCESS_STAGES[number]
 export type DeliveryMethod = 'pickup' | 'delivery'
-type ArchiveRecord = { archivedAt: string; deliveryMethod: DeliveryMethod; finalizedAt?: string }
-let archives: Record<string, ArchiveRecord> = {}
+export const BOARD_STAGE_META: Record<BoardStageId, {code:string;name:string;color:string;orderState:string}> = {
+  incoming:{code:'ORDER_IN',name:'Order Masuk',color:'slate',orderState:'active'},
+  design:{code:'DESIGN',name:'Proses Design',color:'red',orderState:'active'},
+  design_done:{code:'DESIGN_DONE',name:'Design Done',color:'blue',orderState:'active'},
+  printing:{code:'PRINTING',name:'Proses Cetak',color:'amber',orderState:'active'},
+  done:{code:'DONE',name:'Done',color:'emerald',orderState:'completed'},
+  archive:{code:'ARCHIVE',name:'Arsip',color:'slate',orderState:'completed'},
+}
+export type OrderEditInput = {spkCode:string;customerName:string;phone:string;productionType:string;meter:number;customerType:string;orderDate:string;dueDate:string;notes:string}
+export type NewOrderInput = Omit<OrderEditInput,'spkCode'|'phone'>
+export type BoardOrder = {
+  id:string;spk_code:string;customer:{name:string;phone:string};production_type:string;meter:number;customer_type:string;
+  order_state:string;current_step:{code:string;name:string};order_date:string;due_at:string;notes:string;created_at:string;
+  board_stage:BoardStageId;color_token:string;version:number;archive:{archivedAt:string;deliveryMethod:DeliveryMethod;finalizedAt?:string}|null
+}
+type Connection = {state:'loading'|'ready'|'error';realtime:boolean;busy:boolean;error:string;profile:{id:string;full_name:string;role:string}|null}
+const INITIAL_CONNECTION: Connection = {state:'loading',realtime:false,busy:false,error:'',profile:null}
+const EMPTY_ORDERS: BoardOrder[] = []
 const EMPTY_HISTORY: ProcessEvent[] = []
-let history: ProcessEvent[] = EMPTY_HISTORY
+let orders = EMPTY_ORDERS, active = EMPTY_ORDERS, production = EMPTY_ORDERS
+let history = EMPTY_HISTORY
+let connection = INITIAL_CONNECTION
+let started = false
+let client: ReturnType<typeof createClient> | undefined
+let fetching: Promise<void> | undefined
+let refreshAgain = false
 const listeners = new Set<() => void>()
-let stages: Record<string, BoardStageId> = Object.fromEntries(MOCK_ORDERS.map((order) => [order.id, defaultStage(order.current_step.code)]))
-export type OrderEditInput = { spkCode: string; customerName: string; phone: string; productionType: string; meter: number; customerType: string; orderDate: string; dueDate: string; notes: string }
-export type NewOrderInput = Omit<OrderEditInput, 'spkCode' | 'phone'>
-type LocalOrder = {
-  id: string
-  spk_code: string
-  customer: { name: string; phone: string }
-  production_type: string
-  meter: number
-  customer_type: string
-  order_state: string
-  current_step: { code: string; name: string }
-  order_date: string
-  due_at: string
-  notes: string
-  created_at: string
+function emit() { listeners.forEach(listener => listener()) }
+function setConnection(update: Partial<Connection>) { connection = {...connection,...update}; emit() }
+function db() { return client ??= createClient() }
+export function errorMessage(error: unknown) {
+  if (error && typeof error === 'object' && 'message' in error && typeof error.message === 'string') return error.message
+  return 'Tidak dapat terhubung ke server. Periksa jaringan dan coba lagi.'
 }
-let edits: Record<string, OrderEditInput> = {}
-let deletedOrderIds = new Set<string>()
-let createdOrders: LocalOrder[] = []
-let loaded = false
-let snapshot = buildSnapshot()
-
-function defaultStage(code: string): BoardStageId {
-  return ({ ORDER_IN: 'incoming', DESIGN: 'design', DESIGN_DONE: 'design_done', PRINTING: 'printing', DONE: 'done', ARCHIVE: 'archive' } as Record<string, BoardStageId>)[code] ?? 'incoming'
+async function allRows(table: string) {
+  const rows: Record<string, unknown>[] = []
+  for (let offset=0;;offset+=1000) {
+    const {data,error} = await db().from(table).select('*').order('id').range(offset,offset+999)
+    if (error) throw error
+    rows.push(...data)
+    if(data.length<1000) return rows
+  }
 }
-
-function buildSnapshot() {
-  const sourceOrders: LocalOrder[] = [...MOCK_ORDERS, ...createdOrders]
-  return sourceOrders.filter((order) => !deletedOrderIds.has(order.id)).map((order) => {
-    const stage = stages[order.id] ?? defaultStage(order.current_step.code)
-    const meta = BOARD_STAGE_META[stage]
-    const edit = edits[order.id]
-    return {
-      ...order,
-      spk_code: edit?.spkCode ?? order.spk_code,
-      customer: { name: edit?.customerName ?? order.customer.name, phone: edit?.phone ?? order.customer.phone },
-      production_type: edit?.productionType ?? order.production_type,
-      meter: edit?.meter ?? order.meter,
-      customer_type: edit?.customerType ?? order.customer_type,
-      order_date: edit?.orderDate ?? order.order_date,
-      due_at: edit?.dueDate ?? order.due_at,
-      notes: edit?.notes ?? order.notes,
-      board_stage: stage,
-      current_step: { code: meta.code, name: meta.name },
-      order_state: meta.orderState,
-      color_token: meta.color,
-      archive: archives[order.id] ?? null,
-    }
+async function fetchSnapshot() {
+  const {data:profile,error:profileError}=await db().from('profiles').select('id,full_name,role,is_active').eq('id',connection.profile?.id??'').maybeSingle()
+  if(profileError)throw profileError
+  if(!profile?.is_active)throw new Error('Akses akun sudah dinonaktifkan. Hubungi admin.')
+  const [orderRows,customers,steps,eventRows] = await Promise.all(['orders','customers','production_steps','process_history'].map(allRows))
+  const stepMap = new Map(steps.map(step => [step.id,step]))
+  const customerMap = new Map(customers.map(customer => [customer.id,customer]))
+  if(PROCESS_STAGES.some(stage => !steps.some(step=>step.code===BOARD_STAGE_META[stage].code))) throw new Error('Tahapan produksi belum lengkap. Jalankan migrasi database 0007 dan 0008.')
+  const stageFromStep = (id: unknown): BoardStageId => {
+    const found = PROCESS_STAGES.find(stage=>BOARD_STAGE_META[stage].code===stepMap.get(id)?.code)
+    if(!found) throw new Error('Ada order/riwayat dengan tahap tidak valid. Periksa database.')
+    return found
+  }
+  const nextOrders: BoardOrder[] = orderRows.map(row=>{
+    const stage=stageFromStep(row.current_step_id), meta=BOARD_STAGE_META[stage], customer=customerMap.get(row.customer_id)
+    return {id:String(row.id),spk_code:String(row.spk_code),customer:{name:String(customer?.name??''),phone:String(customer?.phone??'')},
+      production_type:String(row.production_type),meter:Number(row.meter),customer_type:String(row.customer_type),order_state:meta.orderState,
+      current_step:{code:meta.code,name:meta.name},board_stage:stage,color_token:meta.color,order_date:String(row.order_date),due_at:String(row.due_at??''),
+      notes:String(row.notes??''),created_at:String(row.created_at),version:Number(row.version),
+      archive:row.archived_at?{archivedAt:String(row.archived_at),deliveryMethod:row.delivery_method as DeliveryMethod,finalizedAt:row.archive_finalized_at?String(row.archive_finalized_at):undefined}:null}
   })
+  const nextHistory: ProcessEvent[] = eventRows.map(row=>({id:String(row.id),orderId:String(row.order_identity??row.order_id),spkCode:String(row.spk_code),customerName:String(row.customer_name??''),
+    stage:stageFromStep(row.step_id),kind:row.event_kind as ProcessEvent['kind'],occurredAt:String(row.occurred_at),actorName:row.actor_name?String(row.actor_name):null}))
+  orders=nextOrders;active=orders.filter(order=>order.board_stage!=='archive');production=orders.filter(order=>!order.archive?.finalizedAt);history=nextHistory
+  setConnection({state:'ready',error:'',profile})
 }
-
-function loadBrowserState() {
-  if (loaded || typeof window === 'undefined') return
-  initializeFreshOrders()
-  loaded = true
+export async function refreshOnlineData() {
+  if(fetching) { refreshAgain=true; return fetching }
+  fetching=(async()=>{do {refreshAgain=false;await fetchSnapshot()}while(refreshAgain)})()
+  try {await fetching} catch(error) {setConnection({state:'error',error:errorMessage(error)});throw error} finally {fetching=undefined}
+}
+async function start() {
   try {
-    const saved = JSON.parse(window.localStorage.getItem(STORAGE_KEY) ?? '{}') as Record<string, BoardStageId>
-    stages = { ...stages, ...Object.fromEntries(Object.entries(saved).filter(([, stage]) => stage in BOARD_STAGE_META)) }
-    edits = JSON.parse(window.localStorage.getItem(EDITS_STORAGE_KEY) ?? '{}') as Record<string, OrderEditInput>
-    deletedOrderIds = new Set(JSON.parse(window.localStorage.getItem(DELETED_STORAGE_KEY) ?? '[]') as string[])
-    createdOrders = JSON.parse(window.localStorage.getItem(CREATED_STORAGE_KEY) ?? '[]') as LocalOrder[]
-    archives = JSON.parse(window.localStorage.getItem(ARCHIVE_STORAGE_KEY) ?? '{}') as Record<string, ArchiveRecord>
-    snapshot = buildSnapshot()
-  } catch {
-    window.localStorage.removeItem(STORAGE_KEY)
-    window.localStorage.removeItem(EDITS_STORAGE_KEY)
-    window.localStorage.removeItem(DELETED_STORAGE_KEY)
-    window.localStorage.removeItem(CREATED_STORAGE_KEY)
-  }
+    const {data:{user},error}=await db().auth.getUser()
+    if(error||!user) throw new Error('Silakan login untuk membuka data online.')
+    const {data:profile,error:profileError}=await db().from('profiles').select('id,full_name,role,is_active').eq('id',user.id).maybeSingle()
+    if(profileError) throw profileError
+    if(!profile?.is_active) throw new Error('Akun belum diaktifkan sebagai karyawan. Hubungi admin.')
+    setConnection({profile})
+    const {data:ready,error:setupError}=await db().rpc('printex_online_status')
+    if(setupError||ready?.schema_version!==7) throw new Error('Database belum siap online. Jalankan migrasi 0007 dan 0008 di Supabase SQL Editor.')
+    const requiredTables=['orders','customers','production_steps','process_history','profiles']
+    if(requiredTables.some(table=>!ready.realtime_tables?.includes(table))) throw new Error('Realtime belum diaktifkan untuk seluruh tabel.')
+    await refreshOnlineData()
+    const channel=db().channel(`printex-board-${crypto.randomUUID()}`)
+    for(const table of requiredTables) channel.on('postgres_changes',{event:'*',schema:'public',table},()=>{void refreshOnlineData().catch(()=>{})})
+    channel.subscribe(status=>{
+      setConnection({realtime:status==='SUBSCRIBED'})
+      if(status==='SUBSCRIBED') void refreshOnlineData().catch(()=>{})
+    })
+    window.addEventListener('online',()=>{void refreshOnlineData().catch(()=>{})})
+    window.addEventListener('offline',()=>setConnection({state:'error',realtime:false,error:'Koneksi terputus. Perubahan dinonaktifkan sampai terhubung kembali.'}))
+    window.addEventListener('focus',()=>{void refreshOnlineData().catch(()=>{})})
+    window.setInterval(()=>{if(document.visibilityState==='visible') void refreshOnlineData().catch(()=>{})},30000)
+  } catch(error) {setConnection({state:'error',error:errorMessage(error)})}
+}
+function subscribe(listener:()=>void) {listeners.add(listener);if(!started){started=true;void start()}return()=>{listeners.delete(listener)}}
+export function useAllOrders(){return useSyncExternalStore(subscribe,()=>orders,()=>EMPTY_ORDERS)}
+export function useBoardOrders(){return useSyncExternalStore(subscribe,()=>active,()=>EMPTY_ORDERS)}
+export function useProductionOrders(){return useSyncExternalStore(subscribe,()=>production,()=>EMPTY_ORDERS)}
+export function useProcessHistory(){return useSyncExternalStore(subscribe,()=>history,()=>EMPTY_HISTORY)}
+export function useOnlineConnection(){return useSyncExternalStore(subscribe,()=>connection,()=>INITIAL_CONNECTION)}
+
+async function mutate(action:string,id:string,data:unknown={}) {
+  if(connection.state!=='ready'||connection.busy) throw new Error('Tunggu sinkronisasi selesai sebelum mengubah order.')
+  const order=orders.find(item=>item.id===id)
+  setConnection({busy:true,error:''})
   try {
-    const savedHistory = JSON.parse(window.localStorage.getItem(HISTORY_STORAGE_KEY) ?? '[]')
-    history = Array.isArray(savedHistory) ? savedHistory.filter((event) => event && typeof event.id === 'string' && typeof event.orderId === 'string' && typeof event.spkCode === 'string' && typeof event.customerName === 'string' && event.stage in BOARD_STAGE_META && ['entered', 'completed', 'returned'].includes(event.kind) && Number.isFinite(Date.parse(event.occurredAt))) : EMPTY_HISTORY
-  } catch { history = EMPTY_HISTORY }
+    const {error}=await db().rpc('printex_mutate_order',{p_action:action,p_order_id:id,p_expected_version:order?.version??null,p_data:data})
+    if(error) throw error
+    await refreshOnlineData()
+  } catch(error) {setConnection({error:errorMessage(error)});throw error} finally {setConnection({busy:false})}
 }
-
-function initializeFreshOrders() {
-  if (window.localStorage.getItem(RESET_KEY)) return
-  const backupKey = `${RESET_KEY}-backup`
-  if (!window.localStorage.getItem(backupKey)) window.localStorage.setItem(backupKey, JSON.stringify(Object.fromEntries(STATE_KEYS.map(key => [key, window.localStorage.getItem(key)]))))
-  const now = new Date().toISOString()
-  const today = jakartaDate(now)
-  const freshOrders: LocalOrder[] = MOCK_ORDERS.slice(0, 10).map((order, index) => ({
-    ...order,
-    id: `local-${crypto.randomUUID()}`,
-    spk_code: `SPK-${1100 + index}`,
-    customer: { name: order.customer.name, phone: '' },
-    order_state: 'active',
-    current_step: { code: 'ORDER_IN', name: 'Order Masuk' },
-    order_date: today,
-    due_at: today,
-    created_at: now,
-    notes: '',
-  }))
-  const freshHistory = freshOrders.flatMap(order => transitionEvents(order, null, 'incoming', now))
-  window.localStorage.setItem(CREATED_STORAGE_KEY, JSON.stringify(freshOrders))
-  window.localStorage.setItem(STORAGE_KEY, JSON.stringify(Object.fromEntries(freshOrders.map(order => [order.id, 'incoming']))))
-  window.localStorage.setItem(DELETED_STORAGE_KEY, JSON.stringify(MOCK_ORDERS.map(order => order.id)))
-  window.localStorage.setItem(EDITS_STORAGE_KEY, '{}')
-  window.localStorage.setItem(ARCHIVE_STORAGE_KEY, '{}')
-  window.localStorage.setItem(HISTORY_STORAGE_KEY, JSON.stringify(freshHistory))
-  window.localStorage.setItem(RESET_KEY, now)
+export async function addOrder(input:NewOrderInput,id=crypto.randomUUID()){await mutate('create',id,input);return orders.find(order=>order.id===id)}
+export async function updateOrder(id:string,input:OrderEditInput){await mutate('edit',id,input)}
+export async function deleteOrder(id:string){await mutate('delete',id)}
+export async function moveOrderToStage(id:string,stage:BoardStageId){
+  const order=orders.find(item=>item.id===id)
+  if(!order||order.board_stage==='archive'||stage==='archive'||!PROCESS_STAGES.includes(stage)||Math.abs(PROCESS_STAGES.indexOf(stage)-PROCESS_STAGES.indexOf(order.board_stage))!==1)return false
+  await mutate('move',id,{code:BOARD_STAGE_META[stage].code});return true
 }
-
-function recordTransition(order: { id: string; spk_code: string; customer: { name: string } }, from: BoardStageId | null, to: BoardStageId) {
-  history = [...history, ...transitionEvents(order, from, to, new Date().toISOString())]
-  window.localStorage.setItem(HISTORY_STORAGE_KEY, JSON.stringify(history))
-}
-
-function subscribe(listener: () => void) {
-  loadBrowserState()
-  listeners.add(listener)
-  function onStorage(event: StorageEvent) {
-    if (event.key !== null && !STATE_KEYS.includes(event.key)) return
-    loaded = false
-    stages = Object.fromEntries(MOCK_ORDERS.map((order) => [order.id, defaultStage(order.current_step.code)]))
-    loadBrowserState()
-    listener()
-  }
-  window.addEventListener('storage', onStorage)
-  return () => { listeners.delete(listener); window.removeEventListener('storage', onStorage) }
-}
-
-export function moveOrderToStage(orderId: string, stage: BoardStageId): boolean {
-  loadBrowserState()
-  const order = snapshot.find((item) => item.id === orderId)
-  if (!order || order.board_stage === stage || order.board_stage === 'archive' || stage === 'archive') return false
-  if (Math.abs(PROCESS_STAGES.indexOf(stage) - PROCESS_STAGES.indexOf(order.board_stage)) !== 1 || !PROCESS_STAGES.includes(stage)) return false
-  recordTransition(order, order.board_stage, stage)
-  stages = { ...stages, [orderId]: stage }
-  snapshot = buildSnapshot()
-  window.localStorage.setItem(STORAGE_KEY, JSON.stringify(stages))
-  listeners.forEach((listener) => listener())
-  return true
-}
-
-export function updateOrder(orderId: string, input: OrderEditInput) {
-  loadBrowserState()
-  if (!snapshot.some(order => order.id === orderId && order.board_stage !== 'archive')) return
-  edits = { ...edits, [orderId]: input }
-  snapshot = buildSnapshot()
-  window.localStorage.setItem(EDITS_STORAGE_KEY, JSON.stringify(edits))
-  listeners.forEach((listener) => listener())
-}
-
-export function addOrder(input: NewOrderInput) {
-  loadBrowserState()
-  const allCodes = [...MOCK_ORDERS, ...createdOrders, ...Object.values(edits)].map((order) => 'spk_code' in order ? order.spk_code : order.spkCode)
-  const highestSpk = Math.max(1099, ...allCodes.map((code) => Number(code.match(/\d+/)?.[0] ?? 0)))
-  const id = `local-${crypto.randomUUID()}`
-  const order: LocalOrder = {
-    id,
-    spk_code: `SPK-${highestSpk + 1}`,
-    customer: { name: input.customerName, phone: '' },
-    production_type: input.productionType,
-    meter: input.meter,
-    customer_type: input.customerType,
-    order_state: 'active',
-    current_step: { code: 'ORDER_IN', name: 'Order Masuk' },
-    order_date: input.orderDate,
-    due_at: input.dueDate,
-    notes: input.notes,
-    created_at: new Date().toISOString(),
-  }
-  createdOrders = [...createdOrders, order]
-  recordTransition(order, null, 'incoming')
-  stages = { ...stages, [id]: 'incoming' }
-  snapshot = buildSnapshot()
-  window.localStorage.setItem(CREATED_STORAGE_KEY, JSON.stringify(createdOrders))
-  window.localStorage.setItem(STORAGE_KEY, JSON.stringify(stages))
-  listeners.forEach((listener) => listener())
-  return order
-}
-
-export function deleteOrder(orderId: string) {
-  loadBrowserState()
-  if (!snapshot.some(order => order.id === orderId && order.board_stage !== 'archive')) return
-  const isCreatedOrder = createdOrders.some((order) => order.id === orderId)
-  createdOrders = createdOrders.filter((order) => order.id !== orderId)
-  if (!isCreatedOrder) deletedOrderIds = new Set([...deletedOrderIds, orderId])
-  delete edits[orderId]
-  delete stages[orderId]
-  snapshot = buildSnapshot()
-  window.localStorage.setItem(DELETED_STORAGE_KEY, JSON.stringify([...deletedOrderIds]))
-  window.localStorage.setItem(CREATED_STORAGE_KEY, JSON.stringify(createdOrders))
-  window.localStorage.setItem(EDITS_STORAGE_KEY, JSON.stringify(edits))
-  window.localStorage.setItem(STORAGE_KEY, JSON.stringify(stages))
-  listeners.forEach((listener) => listener())
-}
-
-export function archiveOrder(orderId: string, deliveryMethod: DeliveryMethod): boolean {
-  loadBrowserState()
-  const order = snapshot.find(item => item.id === orderId)
-  if (!order || order.board_stage !== 'done' || !['pickup', 'delivery'].includes(deliveryMethod)) return false
-  const archivedAt = new Date().toISOString()
-  const nextArchives = { ...archives, [orderId]: { archivedAt, deliveryMethod } }
-  const nextHistory = [...history, ...transitionEvents(order, 'done', 'archive', archivedAt)]
-  const nextStages = { ...stages, [orderId]: 'archive' as const }
-  // Persist before notifying subscribers. Keep the complete order and its ID.
-  window.localStorage.setItem(ARCHIVE_STORAGE_KEY, JSON.stringify(nextArchives))
-  window.localStorage.setItem(HISTORY_STORAGE_KEY, JSON.stringify(nextHistory))
-  window.localStorage.setItem(STORAGE_KEY, JSON.stringify(nextStages))
-  archives = nextArchives
-  history = nextHistory
-  stages = nextStages
-  snapshot = buildSnapshot()
-  listeners.forEach(listener => listener())
-  return true
-}
-
-export function useAllOrders() {
-  return useSyncExternalStore(subscribe, () => { loadBrowserState(); return snapshot }, () => snapshot)
-}
-
-// A single durable write finalizes the archive. Repeated clicks cannot replace
-// the original reporting date, and the order retains its identity and history.
-export function finishArchivedOrder(orderId: string): boolean {
-  loadBrowserState()
-  const order = snapshot.find(item => item.id === orderId)
-  if (!order || order.board_stage !== 'archive' || !order.archive || order.archive.finalizedAt) return false
-  const nextArchives = { ...archives, [orderId]: { ...order.archive, finalizedAt: new Date().toISOString() } }
-  window.localStorage.setItem(ARCHIVE_STORAGE_KEY, JSON.stringify(nextArchives))
-  archives = nextArchives
-  snapshot = buildSnapshot()
-  listeners.forEach(listener => listener())
-  return true
-}
-
-let productionSource = snapshot
-let productionSnapshot = snapshot.filter(order => !order.archive?.finalizedAt)
-function getProductionOrders() {
-  if (productionSource !== snapshot) {
-    productionSource = snapshot
-    productionSnapshot = snapshot.filter(order => !order.archive?.finalizedAt)
-  }
-  return productionSnapshot
-}
-export function useProductionOrders() {
-  return useSyncExternalStore(subscribe, () => { loadBrowserState(); return getProductionOrders() }, getProductionOrders)
-}
-
-let activeSource = snapshot
-let activeSnapshot = snapshot.filter(order => order.board_stage !== 'archive')
-function getActiveOrders() {
-  if (activeSource !== snapshot) {
-    activeSource = snapshot
-    activeSnapshot = snapshot.filter(order => order.board_stage !== 'archive')
-  }
-  return activeSnapshot
-}
-export function useBoardOrders() {
-  return useSyncExternalStore(subscribe, () => { loadBrowserState(); return getActiveOrders() }, getActiveOrders)
-}
-
-export function useProcessHistory() {
-  return useSyncExternalStore(subscribe, () => { loadBrowserState(); return history }, () => EMPTY_HISTORY)
+export async function archiveOrder(id:string,deliveryMethod:DeliveryMethod){await mutate('archive',id,{deliveryMethod});return true}
+export async function finishArchivedOrder(id:string){await mutate('finish',id);return true}
+export async function importLocalData(){
+  if(connection.state!=='ready'||connection.busy)throw new Error('Database belum siap.')
+  const payload=readLegacyData(window.localStorage)
+  setConnection({busy:true,error:''})
+  try {
+    const {data,error}=await db().rpc('printex_import_local',{p_payload:payload})
+    if(error)throw error
+    await refreshOnlineData()
+    return Number(data.imported)
+  }catch(error){setConnection({error:errorMessage(error)});throw error}finally{setConnection({busy:false})}
 }
