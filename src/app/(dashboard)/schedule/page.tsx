@@ -2,6 +2,7 @@
 
 import { useMemo, useState, type DragEvent } from 'react'
 import Link from 'next/link'
+import { OrderTimer } from '@/components/production-timers'
 import { AlertTriangle, Archive, Check, Palette, Pencil, Printer, Sparkles, Star, Trash2, X } from 'lucide-react'
 import { formatDueDate, isOverdue, cn } from '@/lib/utils'
 import { archiveOrder, finishArchivedOrder, deleteOrder, moveOrderToStage, useProductionOrders, type BoardStageId, type DeliveryMethod } from '@/lib/production-board'
@@ -104,23 +105,24 @@ export default function ProductionBoardPage() {
                         draggable={stage.id !== 'archive'}
                         onDragStart={(event) => { event.dataTransfer.effectAllowed = 'move'; event.dataTransfer.setData('text/plain', order.id); setDraggedId(order.id) }}
                         onDragEnd={() => { setDraggedId(null); setDragOverStage(null) }}
-                        className={cn('group cursor-grab rounded-2xl border p-3.5 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md active:cursor-grabbing', stage.card, overdue && 'board-card-overdue', draggedId === order.id && 'scale-95 opacity-45')}
+                        className={cn('group relative cursor-grab rounded-2xl border p-3.5 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md active:cursor-grabbing', stage.card, overdue && 'board-card-overdue', draggedId === order.id && 'scale-95 ring-2 ring-blue-500')}
                       >
-                        <div className="flex items-start justify-between gap-2">
+                        <div className="flex items-start justify-between gap-2 pr-10">
                           <div className="flex min-w-0 items-center gap-1.5">
                             <Link href={`/orders/${order.id}`} className="whitespace-nowrap font-mono text-xs font-bold text-blue-700 hover:underline">{order.spkCode}</Link>
                             {order.customerType === 'priority' && <span title="Customer prioritas" aria-label="Customer prioritas" className="inline-flex shrink-0 items-center justify-center rounded-md border border-amber-200 bg-amber-50 p-1 text-amber-600"><Star aria-hidden="true" className="h-3 w-3 fill-current" /></span>}
                           </div>
-                          {stage.id !== 'archive' && <div className="flex shrink-0 flex-col items-center gap-1.5">
+                          {stage.id !== 'archive' && <div className="absolute right-3.5 top-3.5 flex flex-col items-center gap-1.5">
                             <Link href={`/orders/${order.id}/edit`} draggable={false} onPointerDown={(event) => event.stopPropagation()} aria-label={`Edit ${order.spkCode}`} title="Edit order" className="board-edit-button"><Pencil className="h-3.5 w-3.5" /></Link>
                             <button type="button" draggable={false} onPointerDown={(event) => event.stopPropagation()} onClick={() => setPendingDelete(order)} aria-label={`Hapus ${order.spkCode}`} title="Hapus order" className="board-edit-button"><Trash2 className="h-3.5 w-3.5 text-red-600" /></button>
                           </div>}
                         </div>
-                        <p className="mt-2 truncate text-sm font-bold text-slate-900">{order.customer}</p>
-                        <div className="mt-2 flex flex-wrap items-center gap-1.5 text-xs text-slate-400">
+                        <p title={order.customer} className="mt-2 break-words pr-10 text-sm font-bold leading-5 text-slate-900">{order.customer}</p>
+                        <div className="mt-2 flex min-h-5 flex-wrap items-center gap-1.5 pr-10 text-xs text-slate-400">
                           <span className="board-card-tag rounded-md px-1.5 py-0.5 font-medium text-slate-600">{order.productionType}</span><span>{order.meter} m</span>
                         </div>
                         <p className={cn('mt-2 text-[11px] font-medium', overdue ? 'board-due-overdue' : 'text-slate-500')}>{overdue && '⚠ '}Due: {formatDueDate(order.dueAt, completed ? 'completed' : 'active')}</p>
+                        <OrderTimer id={order.id} hideTotal={stage.id !== 'archive'} />
                         {stage.id === 'done' && <button type="button" onPointerDown={event => event.stopPropagation()} onClick={() => { setPendingArchive(order); setDeliveryMethod('pickup'); setArchiveError('') }} className="mt-3 flex w-full items-center justify-center gap-2 rounded-lg border border-emerald-200 bg-white px-3 py-2 text-xs font-bold text-emerald-700"><Archive className="h-4 w-4" /> Konfirmasi Diterima</button>}
                         {stage.id === 'archive' && <><p className="mt-3 text-xs font-medium text-emerald-600">{order.deliveryMethod === 'pickup' ? 'Sudah diambil pembeli' : order.deliveryMethod === 'delivery' ? 'Sudah dikirim / diterima' : 'Penyerahan tercatat'}</p><button type="button" onClick={async () => { try { if (await finishArchivedOrder(order.id)) setNotice(`${order.spkCode} tersimpan di Laporan Arsip dengan tanggal hari ini (WIB).`); else setNotice('Order sudah diselesaikan atau data penyerahannya belum lengkap.') } catch { setNotice('Laporan belum tersimpan. Periksa koneksi database lalu coba lagi.') } }} className="mt-3 flex w-full items-center justify-center gap-2 rounded-lg bg-blue-600 px-3 py-2 text-xs font-bold text-white hover:bg-blue-700"><Check className="h-4 w-4" /> Selesai</button></>}
                       </article>

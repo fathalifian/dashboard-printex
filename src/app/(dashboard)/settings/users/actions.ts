@@ -9,7 +9,7 @@ const profileSchema = z.object({
   role: z.enum(['superadmin', 'admin', 'staff']),
   active: z.boolean(),
 })
-const createSchema = profileSchema.extend({ email: z.string().trim().email().max(254), password: z.string().min(12).max(128) })
+const createSchema = profileSchema.extend({ email: z.string().trim().email().max(254), password: z.string().min(8).max(128) })
 async function authorize() {
   const client = await createClient()
   const { data: { user }, error } = await client.auth.getUser()
@@ -19,7 +19,7 @@ async function authorize() {
   return { client, user }
 }
 function message(error: unknown) {
-  if (error instanceof z.ZodError) return 'Data tidak valid. Isi nama, email, role, dan password minimal 12 karakter.'
+  if (error instanceof z.ZodError) return 'Data tidak valid. Isi nama, email, role, dan password minimal 8 karakter.'
   return error instanceof Error ? error.message : 'Permintaan gagal. Silakan coba lagi.'
 }
 export async function listManagedUsers() {

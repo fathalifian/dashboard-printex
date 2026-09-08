@@ -64,23 +64,20 @@ body {
 .board-card .board-edit-button:focus-visible { outline: 2px solid #ffffff; outline-offset: 2px; }
 
 .board-card {
+  background-color: #ffffff;
   border-width: 2px;
-  box-shadow: 0 3px 0 rgb(15 23 42 / 0.14), 0 8px 18px rgb(15 23 42 / 0.12);
+  border-left-width: 4px;
+  box-shadow: 0 3px 0 rgb(15 23 42 / 0.05), 0 8px 18px rgb(15 23 42 / 0.04);
   transition: background-color 180ms ease, border-color 180ms ease, transform 150ms ease, box-shadow 150ms ease;
 }
-.board-card-incoming, .board-card-archive { background-color: #ffffff; border-color: #64748b; }
-.board-card-design { background-color: #e11d48; border-color: #881337; }
-.board-card-design-done { background-color: #2563eb; border-color: #1e3a8a; }
-.board-card-printing { background-color: #fbbf24; border-color: #92400e; }
-.board-card-done { background-color: #059669; border-color: #064e3b; }
-.board-card-overdue { border-color: #dc2626; box-shadow: 0 0 0 2px rgb(254 202 202), 0 8px 18px rgb(127 29 29 / 0.18); }
-.board-card-tag { background-color: rgb(255 255 255 / 0.82); }
-
-.board-card-design :is(.text-slate-900, .text-slate-500, .text-slate-400),
-.board-card-design-done :is(.text-slate-900, .text-slate-500, .text-slate-400),
-.board-card-done :is(.text-slate-900, .text-slate-500, .text-slate-400) { color: #ffffff; }
-.board-card-design a, .board-card-design-done a, .board-card-done a { color: #ffffff; text-decoration-color: rgb(255 255 255 / 0.7); }
-.board-card-printing :is(.text-slate-900, .text-slate-500, .text-slate-400), .board-card-printing a { color: #422006; }
+.board-card-incoming, .board-card-archive { border-color: #e2e8f0; border-left-color: #64748b; }
+.board-card-design { border-color: #fecdd3; border-left-color: #e11d48; }
+.board-card-design-done { border-color: #bfdbfe; border-left-color: #2563eb; }
+.board-card-printing { border-color: #fde68a; border-left-color: #f59e0b; }
+.board-card-press { border-color: #e9d5ff; border-left-color: #8b5cf6; }
+.board-card-done { border-color: #a7f3d0; border-left-color: #059669; }
+.board-card-overdue { border-color: #fca5a5; border-left-color: #dc2626; box-shadow: 0 0 0 2px rgb(254 202 202), 0 8px 18px rgb(127 29 29 / 0.18); }
+.board-card-tag { background-color: #f1f5f9; }
 
 /* Dark surfaces and typography: retain readable secondary text and clear edges. */
 .dark .bg-white { background-color: var(--dark-panel); }
@@ -180,5 +177,5 @@ body {
 }
 
 
-.board-card-press { background-color: #ede9fe; border-color: #8b5cf6; }
+
 .dark [data-board-stage="press"] { --stage-accent: #d8b4fe; --stage-border: #8b68ae; --stage-header: #3c2b50; --stage-card: #30243f; }

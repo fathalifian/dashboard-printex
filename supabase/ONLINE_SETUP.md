@@ -36,7 +36,7 @@ Order Masuk boleh langsung ke Menunggu Pembayaran jika desain sudah tersedia. Kh
 
 1. Jalankan migrations/0011_user_management.sql melalui SQL Editor sekali untuk database yang sudah ada.
 2. Tambahkan SUPABASE_SECRET_KEY (atau SUPABASE_SERVICE_ROLE_KEY) ke .env.local dan Environment Variables Vercel. Gunakan secret key dari pengaturan API Keys Supabase; jangan memakai awalan NEXT_PUBLIC_ dan jangan memasukkan key ke Git. Restart server development atau redeploy setelah mengisi konfigurasi.
-3. Login sebagai Super Admin, buka Pengaturan ? Kelola Pengguna. Tambah akun dengan nama, email, password awal minimal 12 karakter, role, dan status aktif. Akun aktif dapat langsung login tanpa email konfirmasi.
+3. Login sebagai Super Admin, buka Pengaturan ? Kelola Pengguna. Tambah akun dengan nama, email, password awal minimal 8 karakter, role, dan status aktif. Akun aktif dapat langsung login tanpa email konfirmasi.
 4. Edit untuk mengganti nama/role/status. Hapus mencabut akses lebih dahulu, lalu menghapus akun login dan profil secara permanen. Riwayat order dipertahankan. Bila penghapusan login gagal, akun tetap nonaktif dan tombol Hapus bisa dicoba kembali.
 
 Role yang didukung adalah superadmin, admin, staff. Hanya superadmin mengelola akun. Admin dan staff memiliki akses operasional order yang sama; pembatasan operator per tahap belum diterapkan. Daftar akun dimuat ulang setelah aksi, saat fokus browser kembali, dan setiap 30 detik. Perubahan profil juga masuk kanal realtime operasional.

@@ -2,6 +2,7 @@
 
 import { useParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
+import { OrderTimer } from '@/components/production-timers'
 import { AlertTriangle, Phone, CheckCircle2, Circle, Loader2, Pencil, Trash2 } from 'lucide-react'
 import { PROCESS_STAGES } from '@/lib/process-metrics'
 import { deleteOrder, useAllOrders, useProcessHistory, BOARD_STAGE_META } from '@/lib/production-board'
@@ -157,6 +158,7 @@ export default function OrderDetailPage() {
         </div>
 
       </div>
+      <OrderTimer id={order.id} detail />
     </div>
   )
 }
