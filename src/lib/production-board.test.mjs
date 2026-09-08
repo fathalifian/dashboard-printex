@@ -35,8 +35,8 @@ function backend() {
   }
   return {state,client,emit}
 }
-function device(client,storage=new Map()) {
-  const cache={};let storageWrites=0
+function device(client) {
+  const cache={};let storageWrites=0;const events={}
   function load(name) {
     if(name==='react')return {useSyncExternalStore(subscribe,getSnapshot){subscribe(()=>{});return getSnapshot()}}
     if(name==='@/lib/supabase/client')return {createClient:()=>client}
@@ -44,10 +44,10 @@ function device(client,storage=new Map()) {
     const file=new URL(name.replace('@/lib/','')+'.ts',import.meta.url)
     const source=ts.transpileModule(readFileSync(file,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2020}}).outputText
     const exports={};cache[name]=exports
-    runInNewContext(source,{exports,require:load,crypto,Intl,Date,document:{visibilityState:'visible'},window:{addEventListener(){},setInterval(){},localStorage:{getItem:key=>storage.get(key)??null,setItem(){storageWrites++}}}})
+    runInNewContext(source,{exports,require:load,crypto,Intl,Date,document:{visibilityState:'visible'},window:{addEventListener(name,callback){events[name]=callback},setInterval(){},localStorage:{getItem(){storageWrites++;throw new Error('Local storage is forbidden')},setItem(){storageWrites++;throw new Error('Local storage is forbidden')}}}})
     return exports
   }
-  return {board:load('@/lib/production-board'),legacy:load('@/lib/legacy-import'),writes:()=>storageWrites}
+  return {board:load('@/lib/production-board'),writes:()=>storageWrites,events}
 }
 async function waitFor(check){for(let i=0;i<100;i++){if(check())return;await new Promise(resolve=>setTimeout(resolve,5))}assert.fail('State did not synchronize')}
 
@@ -66,22 +66,11 @@ test('two devices refresh from realtime, never write offline data, reject stage 
   api.state.orders[0].archive_finalized_at='2026-09-08T01:00:00Z';api.emit()
   await waitFor(()=>b.board.useProductionOrders().length===0)
   assert.equal(b.board.useAllOrders().length,1)
-})
-
-test('migration reads existing browser edits and deletes without resetting or fabricating dates',()=>{
-  const store=new Map([
-    ['printex-production-board-v2',JSON.stringify({'local-test':'design'})],
-    ['printex-created-orders-v1',JSON.stringify([{id:'local-test',spk_code:'SPK-X',customer:{name:'Before',phone:''},current_step:{code:'ORDER_IN'},order_date:'2026-09-01',created_at:'2026-09-01T00:00:00Z'}])],
-    ['printex-deleted-orders-v1',JSON.stringify(['1','2','3','4','5','6','7','8','9','10'])],
-    ['printex-order-edits-v1',JSON.stringify({'local-test':{customerName:'After',spkCode:'SPK-EDIT',orderDate:'2026-09-02'}})],
-  ])
-  const d=device(backend().client)
-  const payload=d.legacy.readLegacyData({getItem:key=>store.get(key)??null})
-  assert.equal(payload.orders.length,1)
-  assert.equal(payload.orders[0].customer.name,'After')
-  assert.equal(payload.orders[0].board_stage,'design')
-  assert.equal(payload.orders[0].order_date,'2026-09-02')
-  assert.equal(payload.orders[0].created_at,'2026-09-01T00:00:00Z')
-  assert.equal(payload.history.length,0)
-  assert.equal(d.legacy.readLegacyData({getItem:()=>null}).orders.length,0)
+  a.events.offline()
+  assert.equal(a.board.useOnlineConnection().state,'error')
+  await assert.rejects(()=>a.board.addOrder({customerName:'Blocked'},'offline-order'),/sinkronisasi/)
+  assert.equal(api.state.orders.length,1)
+  a.events.online()
+  await waitFor(()=>a.board.useOnlineConnection().state==='ready')
+  assert.equal(a.writes(),0)
 })

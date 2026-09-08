@@ -34,9 +34,9 @@ export default function SettingsPage() {
             <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-50">
               <Database className="h-5 w-5 text-emerald-600" />
             </div>
-            <h3 className="text-sm font-semibold text-slate-900">Import Data CSV</h3>
+            <h3 className="text-sm font-semibold text-slate-900">Database Online</h3>
           </div>
-          <p className="text-xs text-slate-500">Pindahkan data browser lama melalui tombol impor di bagian atas. Impor CSV belum tersedia.</p>
+          <p className="text-xs text-slate-500">Order dan laporan tersimpan di Supabase dan tersinkron antarperangkat. Koneksi internet diperlukan untuk mengubah data.</p>
         </div>
 
         <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm ">

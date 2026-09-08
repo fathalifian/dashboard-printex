@@ -18,7 +18,6 @@ export default function EditOrderPage() {
   const form = draft ?? {
     spkCode: order.spk_code,
     customerName: order.customer.name,
-    phone: order.customer.phone,
     productionType: order.production_type,
     meter: order.meter,
     customerType: order.customer_type,
@@ -48,7 +47,6 @@ export default function EditOrderPage() {
         <div className="grid grid-cols-1 gap-4 rounded-xl border border-slate-200 bg-white p-5 shadow-sm sm:grid-cols-2">
           <label className="text-sm font-medium text-slate-700">Kode SPK<input required value={form.spkCode} onChange={(e) => setField('spkCode', e.target.value)} className={inputClass} /></label>
           <label className="text-sm font-medium text-slate-700">Nama Customer<input required value={form.customerName} onChange={(e) => setField('customerName', e.target.value)} className={inputClass} /></label>
-          <label className="text-sm font-medium text-slate-700">No. WhatsApp<input type="tel" value={form.phone} onChange={(e) => setField('phone', e.target.value)} className={inputClass} /></label>
           <label className="text-sm font-medium text-slate-700">Jenis Produksi<select required value={form.productionType} onChange={(e) => setField('productionType', e.target.value)} className={inputClass}>{PRODUCTION_TYPES.map((type) => <option key={type}>{type}</option>)}</select></label>
           <label className="text-sm font-medium text-slate-700">Jumlah Meter<input required min="0" step="0.01" type="number" value={form.meter} onChange={(e) => setField('meter', Number(e.target.value))} className={inputClass} /></label>
           <label className="text-sm font-medium text-slate-700">Tipe Customer<select value={form.customerType} onChange={(e) => setField('customerType', e.target.value)} className={inputClass}><option value="regular">Customer Biasa</option><option value="priority">Customer Prioritas</option></select></label>

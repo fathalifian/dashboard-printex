@@ -62,30 +62,15 @@ test('inactive staff and anonymous users cannot read business data or write',asy
   await db.query(`SELECT set_config('request.jwt.claim.sub',$1,false)`,[admin])
 })
 
-test('local import preserves dates and history, is idempotent, and rolls back conflicts',async()=>{
-  const local={id:'local-test-1',spk_code:'SPK-9999',customer:{name:'Imported',phone:''},production_type:'DTF',meter:4,customer_type:'regular',board_stage:'archive',order_date:'2026-09-01',due_at:'2026-09-02',created_at:'2026-09-01T00:00:00Z',notes:'original',archive:{archivedAt:'2026-09-02T01:00:00Z',deliveryMethod:'delivery',finalizedAt:'2026-09-03T01:00:00Z'}}
-  const history=[{id:'old-event',orderId:local.id,spkCode:local.spk_code,customerName:'Imported',stage:'design',kind:'completed',occurredAt:'2026-09-01T01:00:00Z'},{id:'deleted-event',orderId:'deleted-order',spkCode:'SPK-DELETED',customerName:'Deleted',stage:'incoming',kind:'entered',occurredAt:'2026-09-01T00:00:00Z'}]
-  const run=payload=>db.query('SELECT public.printex_import_local($1)',[payload])
-  await run({orders:[local],history})
-  await run({orders:[local],history})
-  assert.equal((await db.query('SELECT * FROM orders WHERE legacy_id=$1',[local.id])).rows.length,1)
-  assert.equal((await db.query('SELECT * FROM process_history WHERE legacy_event_id IS NOT NULL')).rows.length,2)
-  const imported=(await db.query('SELECT * FROM orders WHERE legacy_id=$1',[local.id])).rows[0]
-  assert.ok(String(imported.archive_finalized_at).includes('2026'))
-  await assert.rejects(()=>run({orders:[{...local,id:'different-order'}],history:[]}),/duplicate key/)
-  assert.equal((await db.query('SELECT * FROM customers WHERE name=$1',['Imported'])).rows.length,1)
-  const deleted=(await db.query("SELECT * FROM process_history WHERE legacy_event_id='deleted-event'")).rows[0]
-  assert.equal(deleted.order_id,null)
-  assert.ok(deleted.order_identity)
-})
-
 test('online setup can run twice without changing existing orders or history',async()=>{
   await db.exec('RESET ROLE')
   const beforeOrders=(await db.query('SELECT * FROM orders ORDER BY id')).rows
   const beforeHistory=(await db.query('SELECT * FROM process_history ORDER BY id')).rows
   const setup=readFileSync('supabase/SETUP_ONLINE.sql','utf8')
+  await db.exec("CREATE FUNCTION public.printex_import_local(jsonb) RETURNS void LANGUAGE sql AS 'SELECT'")
   await db.exec(setup)
   await db.exec(setup)
+  assert.equal((await db.query("SELECT to_regprocedure('public.printex_import_local(jsonb)') AS fn")).rows[0].fn,null)
   assert.deepEqual((await db.query('SELECT * FROM orders ORDER BY id')).rows,beforeOrders)
   assert.deepEqual((await db.query('SELECT * FROM process_history ORDER BY id')).rows,beforeHistory)
   await db.query("INSERT INTO auth.users(id,email) VALUES('99999999-0000-4000-8000-000000000001','fathalifian@gmail.com')")

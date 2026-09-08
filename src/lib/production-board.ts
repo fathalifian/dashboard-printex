@@ -3,7 +3,6 @@
 import { useSyncExternalStore } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { PROCESS_STAGES, type ProcessEvent } from '@/lib/process-metrics'
-import { readLegacyData } from '@/lib/legacy-import'
 
 export type BoardStageId = typeof PROCESS_STAGES[number]
 export type DeliveryMethod = 'pickup' | 'delivery'
@@ -15,8 +14,8 @@ export const BOARD_STAGE_META: Record<BoardStageId, {code:string;name:string;col
   done:{code:'DONE',name:'Done',color:'emerald',orderState:'completed'},
   archive:{code:'ARCHIVE',name:'Arsip',color:'slate',orderState:'completed'},
 }
-export type OrderEditInput = {spkCode:string;customerName:string;phone:string;productionType:string;meter:number;customerType:string;orderDate:string;dueDate:string;notes:string}
-export type NewOrderInput = Omit<OrderEditInput,'spkCode'|'phone'>
+export type OrderEditInput = {spkCode:string;customerName:string;productionType:string;meter:number;customerType:string;orderDate:string;dueDate:string;notes:string}
+export type NewOrderInput = Omit<OrderEditInput,'spkCode'>
 export type BoardOrder = {
   id:string;spk_code:string;customer:{name:string;phone:string};production_type:string;meter:number;customer_type:string;
   order_state:string;current_step:{code:string;name:string};order_date:string;due_at:string;notes:string;created_at:string;
@@ -57,7 +56,7 @@ async function fetchSnapshot() {
   const [orderRows,customers,steps,eventRows] = await Promise.all(['orders','customers','production_steps','process_history'].map(allRows))
   const stepMap = new Map(steps.map(step => [step.id,step]))
   const customerMap = new Map(customers.map(customer => [customer.id,customer]))
-  if(PROCESS_STAGES.some(stage => !steps.some(step=>step.code===BOARD_STAGE_META[stage].code))) throw new Error('Tahapan produksi belum lengkap. Jalankan migrasi database 0007 dan 0008.')
+  if(PROCESS_STAGES.some(stage => !steps.some(step=>step.code===BOARD_STAGE_META[stage].code))) throw new Error('Tahapan produksi belum lengkap. Jalankan SETUP_ONLINE.sql.')
   const stageFromStep = (id: unknown): BoardStageId => {
     const found = PROCESS_STAGES.find(stage=>BOARD_STAGE_META[stage].code===stepMap.get(id)?.code)
     if(!found) throw new Error('Ada order/riwayat dengan tahap tidak valid. Periksa database.')
@@ -90,7 +89,7 @@ async function start() {
     if(!profile?.is_active) throw new Error('Akun belum diaktifkan sebagai karyawan. Hubungi admin.')
     setConnection({profile})
     const {data:ready,error:setupError}=await db().rpc('printex_online_status')
-    if(setupError||ready?.schema_version!==7) throw new Error('Database belum siap online. Jalankan migrasi 0007 dan 0008 di Supabase SQL Editor.')
+    if(setupError||ready?.schema_version!==7) throw new Error('Database belum siap online. Jalankan SETUP_ONLINE.sql di Supabase SQL Editor.')
     const requiredTables=['orders','customers','production_steps','process_history','profiles']
     if(requiredTables.some(table=>!ready.realtime_tables?.includes(table))) throw new Error('Realtime belum diaktifkan untuk seluruh tabel.')
     await refreshOnlineData()
@@ -133,14 +132,3 @@ export async function moveOrderToStage(id:string,stage:BoardStageId){
 }
 export async function archiveOrder(id:string,deliveryMethod:DeliveryMethod){await mutate('archive',id,{deliveryMethod});return true}
 export async function finishArchivedOrder(id:string){await mutate('finish',id);return true}
-export async function importLocalData(){
-  if(connection.state!=='ready'||connection.busy)throw new Error('Database belum siap.')
-  const payload=readLegacyData(window.localStorage)
-  setConnection({busy:true,error:''})
-  try {
-    const {data,error}=await db().rpc('printex_import_local',{p_payload:payload})
-    if(error)throw error
-    await refreshOnlineData()
-    return Number(data.imported)
-  }catch(error){setConnection({error:errorMessage(error)});throw error}finally{setConnection({busy:false})}
-}

@@ -33,7 +33,6 @@ function ThemeToggle() {
     const nextTheme = isDark ? 'light' : 'dark'
     document.documentElement.classList.toggle('dark', nextTheme === 'dark')
     document.documentElement.dataset.theme = nextTheme
-    window.localStorage.setItem('printex-theme', nextTheme)
     window.dispatchEvent(new Event('theme-change'))
   }
 
