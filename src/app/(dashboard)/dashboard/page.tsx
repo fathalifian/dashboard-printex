@@ -8,7 +8,7 @@ import { StatusBadge } from '@/components/ui/badges'
 import { useProductionOrders } from '@/lib/production-board'
 import { formatDueDate, isOverdue } from '@/lib/utils'
 
-const STEP_COLORS: Record<string, string> = { ORDER_IN: 'slate', DESIGN: 'red', DESIGN_DONE: 'blue', PRINTING: 'amber', DONE: 'emerald', ARCHIVE: 'slate' }
+const STEP_COLORS: Record<string, string> = { ORDER_IN: 'slate', DESIGN: 'red', DESIGN_DONE: 'blue', PRINTING: 'amber', PRESS: 'violet', DONE: 'emerald', ARCHIVE: 'slate' }
 type DashboardOrder = ReturnType<typeof useProductionOrders>[number]
 
 function OrderTable({ title, orders, emptyMessage }: { title: string; orders: DashboardOrder[]; emptyMessage: string }) {
@@ -33,7 +33,7 @@ function OrderTable({ title, orders, emptyMessage }: { title: string; orders: Da
                   <td className="px-4 py-3"><p className="text-sm font-medium text-slate-900">{order.customer.name}</p><p className="text-xs text-slate-400">{order.customer.phone}</p></td>
                   <td className="px-4 py-3"><StatusBadge stepCode={order.current_step.code} stepName={order.current_step.name} colorToken={STEP_COLORS[order.current_step.code]} size="sm" /></td>
                   <td className="px-4 py-3"><span className={overdue ? 'text-xs font-medium text-red-600' : 'text-xs font-medium text-slate-600'}>{formatDueDate(order.due_at, order.order_state)}</span></td>
-                  <td className="px-4 py-3 text-right"><Link href={`/orders/${order.id}`} className="text-xs font-medium text-blue-600 hover:text-blue-800">Track / Detail →</Link></td>
+                  <td className="px-4 py-3 text-right"><Link href={`/orders/${order.id}`} className="text-xs font-medium text-blue-600 hover:text-blue-800">Lihat Detail</Link></td>
                 </tr>
               )
             })}
@@ -62,7 +62,7 @@ export default function DashboardPage() {
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <StatCard title="Order Baru" value={newOrders.length} icon={PackageCheck} color="amber" description="Menunggu dikerjakan" />
         <StatCard title="Sedang Diproses" value={inProgress.length} icon={Loader2} color="blue" description="Order aktif berjalan" />
-        <StatCard title="Order Selesai" value={completedOrders.length} icon={CheckCircle2} color="emerald" description="Done dan Arsip yang masih di board" />
+        <StatCard title="Order Selesai" value={completedOrders.length} icon={CheckCircle2} color="emerald" description="Order selesai dan diterima yang masih di board" />
         <StatCard title="Terlambat" value={overdueOrders.length} icon={AlertTriangle} color="red" description="Due date sudah lewat" />
       </div>
       <div className="relative"><Search className="pointer-events-none absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-slate-400" /><input suppressHydrationWarning type="text" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Cari SPK / Nama Customer..." className="block w-full rounded-xl border border-slate-200 bg-white py-3 pl-11 pr-4 text-sm text-slate-900 placeholder:text-slate-400 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500" /></div>

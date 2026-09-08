@@ -3,7 +3,7 @@
 import { useState, type FormEvent } from 'react'
 import Link from 'next/link'
 import { useParams } from 'next/navigation'
-import { ArrowLeft, Save } from 'lucide-react'
+import { Save } from 'lucide-react'
 import { updateOrder, useBoardOrders, type OrderEditInput } from '@/lib/production-board'
 
 const PRODUCTION_TYPES = ['Sublim', 'DTF', 'Umbul-umbul', 'Batik', 'Jersey']
@@ -40,7 +40,7 @@ export default function EditOrderPage() {
 
   return (
     <div className="mx-auto max-w-3xl space-y-5">
-      <Link href="/schedule" className="inline-flex items-center gap-1.5 text-sm text-slate-500 hover:text-slate-700"><ArrowLeft className="h-4 w-4" /> Kembali ke Board Produksi</Link>
+      <Link href="/schedule" className="inline-flex items-center gap-1.5 text-sm text-slate-500 hover:text-slate-700">Kembali ke Board Produksi</Link>
       <div><h2 className="text-xl font-bold text-slate-900">Edit Order {order.spk_code}</h2><p className="mt-1 text-sm text-slate-400">Perubahan akan langsung diterapkan ke seluruh halaman.</p></div>
 
       <form onSubmit={handleSubmit} className="space-y-5">

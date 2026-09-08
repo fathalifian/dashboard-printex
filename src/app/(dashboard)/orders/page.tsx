@@ -8,16 +8,17 @@ import { formatDueDate, isOverdue } from '@/lib/utils'
 import { deleteOrder, useBoardOrders } from '@/lib/production-board'
 
 const STEP_COLORS: Record<string, string> = {
-  ORDER_IN: 'slate', DESIGN: 'red', DESIGN_DONE: 'blue', PRINTING: 'amber', DONE: 'emerald', ARCHIVE: 'slate',
+  ORDER_IN: 'slate', DESIGN: 'red', DESIGN_DONE: 'blue', PRINTING: 'amber', PRESS: 'violet', DONE: 'emerald', ARCHIVE: 'slate',
 }
 
 const FILTERS = [
   { label: 'Semua', value: 'all' },
   { label: 'Order Masuk', value: 'ORDER_IN' },
   { label: 'Design', value: 'DESIGN' },
-  { label: 'Design Done', value: 'DESIGN_DONE' },
-  { label: 'Proses Cetak', value: 'PRINTING' },
-  { label: 'Done', value: 'DONE' },
+  { label: 'Menunggu Pembayaran', value: 'DESIGN_DONE' },
+  { label: 'Proses Sublim', value: 'PRINTING' },
+  { label: 'Proses Press', value: 'PRESS' },
+  { label: 'Order Selesai', value: 'DONE' },
   { label: 'Terlambat', value: 'overdue' },
 ]
 

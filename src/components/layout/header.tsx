@@ -14,6 +14,7 @@ const pageTitles: Record<string, string> = {
   '/reports': 'Laporan Proses',
   '/archives': 'Laporan Arsip',
   '/settings': 'Pengaturan',
+  '/settings/users': 'Manajemen User',
 }
 
 function subscribeToTheme(onChange: () => void) {

@@ -2,7 +2,7 @@
 
 import { useParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { ArrowLeft, AlertTriangle, Phone, CheckCircle2, Circle, Loader2, Pencil, Trash2 } from 'lucide-react'
+import { AlertTriangle, Phone, CheckCircle2, Circle, Loader2, Pencil, Trash2 } from 'lucide-react'
 import { PROCESS_STAGES } from '@/lib/process-metrics'
 import { deleteOrder, useAllOrders, useProcessHistory, BOARD_STAGE_META } from '@/lib/production-board'
 import { StatusBadge, CustomerTypeBadge } from '@/components/ui/badges'
@@ -10,7 +10,7 @@ import { formatDate, formatDueDate, isOverdue } from '@/lib/utils'
 import { cn } from '@/lib/utils'
 
 const STEP_COLORS: Record<string, string> = {
-  ORDER_IN: 'slate', DESIGN: 'red', DESIGN_DONE: 'blue', PRINTING: 'amber', DONE: 'emerald', ARCHIVE: 'slate',
+  ORDER_IN: 'slate', DESIGN: 'red', DESIGN_DONE: 'blue', PRINTING: 'amber', PRESS: 'violet', DONE: 'emerald', ARCHIVE: 'slate',
 }
 
 export default function OrderDetailPage() {
@@ -23,7 +23,7 @@ export default function OrderDetailPage() {
     return (
       <div className="flex flex-col items-center justify-center py-24 text-center">
         <p className="text-slate-500 text-lg font-medium">Order tidak ditemukan</p>
-        <Link href="/orders" className="mt-4 text-blue-600 text-sm hover:underline">← Kembali ke Semua Order</Link>
+        <Link href="/orders" className="mt-4 text-blue-600 text-sm hover:underline">Kembali ke Semua Order</Link>
       </div>
     )
   }
@@ -40,7 +40,6 @@ export default function OrderDetailPage() {
       {/* Back + Header */}
       <div className="flex items-center gap-3">
         <Link href="/orders" className="flex items-center gap-1.5 text-sm text-slate-500 hover:text-slate-700 transition-colors">
-          <ArrowLeft className="h-4 w-4" />
           Kembali
         </Link>
         <span className="text-slate-300">/</span>
@@ -116,7 +115,8 @@ export default function OrderDetailPage() {
               {PROCESS_STAGES.map((stage, idx) => {
                 const step = BOARD_STAGE_META[stage]
                 const completed = stage === 'archive' ? !!order.archive?.finalizedAt : history.some(event => event.stage === stage && event.kind === 'completed')
-                const state = completed ? 'completed' : order.board_stage === stage ? 'active' : 'pending'
+                const skipped = idx < PROCESS_STAGES.indexOf(order.board_stage) && !history.some(event => event.stage === stage)
+                const state = completed ? 'completed' : order.board_stage === stage ? 'active' : skipped ? 'skipped' : 'pending'
                 const isLast = idx === PROCESS_STAGES.length - 1
                 return (
                   <div key={step.code} className="flex gap-4">
@@ -145,7 +145,7 @@ export default function OrderDetailPage() {
                       </p>
                       <p className="text-xs text-slate-400">
                         {state === 'completed' ? 'Selesai' :
-                         state === 'active' ? 'Sedang berjalan' :
+                         state === 'active' ? 'Sedang berjalan' : state === 'skipped' ? 'Tidak dilalui / tidak tercatat' :
                          'Menunggu'}
                       </p>
                     </div>

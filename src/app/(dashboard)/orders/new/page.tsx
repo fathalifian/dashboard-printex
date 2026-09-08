@@ -3,7 +3,6 @@
 import { useState, useRef } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { ArrowLeft } from 'lucide-react'
 import { jakartaDate } from '@/lib/process-metrics'
 import { addOrder } from '@/lib/production-board'
 
@@ -44,7 +43,6 @@ export default function NewOrderPage() {
     <div className="max-w-2xl space-y-5">
       <div className="flex items-center gap-3">
         <Link href="/orders" className="flex items-center gap-1.5 text-sm text-slate-500 hover:text-slate-700 transition-colors">
-          <ArrowLeft className="h-4 w-4" />
           Kembali
         </Link>
       </div>

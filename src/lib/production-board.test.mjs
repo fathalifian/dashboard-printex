@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs'
 import { runInNewContext } from 'node:vm'
 import ts from 'typescript'
 
-const codes=['ORDER_IN','DESIGN','DESIGN_DONE','PRINTING','DONE','ARCHIVE']
+const codes=['ORDER_IN','DESIGN','DESIGN_DONE','PRINTING','PRESS','DONE','ARCHIVE']
 function backend() {
   const state={orders:[],customers:[],production_steps:codes.map((code,index)=>({id:String(index),code})),process_history:[],profiles:[{id:'user',full_name:'Admin',role:'superadmin',is_active:true}]}
   const subscriptions=[]
@@ -61,7 +61,7 @@ test('two devices refresh from realtime, never write offline data, reject stage 
   assert.equal(await a.board.moveOrderToStage('order-1','done'),false)
   assert.equal(await a.board.moveOrderToStage('order-1','design'),true)
   await waitFor(()=>b.board.useAllOrders()[0].board_stage==='design')
-  api.state.orders[0].current_step_id='5';api.state.orders[0].archived_at='2026-09-07T01:00:00Z';api.state.orders[0].delivery_method='pickup';api.emit()
+  api.state.orders[0].current_step_id='6';api.state.orders[0].archived_at='2026-09-07T01:00:00Z';api.state.orders[0].delivery_method='pickup';api.emit()
   await waitFor(()=>b.board.useProductionOrders()[0]?.board_stage==='archive')
   api.state.orders[0].archive_finalized_at='2026-09-08T01:00:00Z';api.emit()
   await waitFor(()=>b.board.useProductionOrders().length===0)

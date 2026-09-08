@@ -8,11 +8,12 @@ export type BoardStageId = typeof PROCESS_STAGES[number]
 export type DeliveryMethod = 'pickup' | 'delivery'
 export const BOARD_STAGE_META: Record<BoardStageId, {code:string;name:string;color:string;orderState:string}> = {
   incoming:{code:'ORDER_IN',name:'Order Masuk',color:'slate',orderState:'active'},
-  design:{code:'DESIGN',name:'Proses Design',color:'red',orderState:'active'},
-  design_done:{code:'DESIGN_DONE',name:'Design Done',color:'blue',orderState:'active'},
-  printing:{code:'PRINTING',name:'Proses Cetak',color:'amber',orderState:'active'},
-  done:{code:'DONE',name:'Done',color:'emerald',orderState:'completed'},
-  archive:{code:'ARCHIVE',name:'Arsip',color:'slate',orderState:'completed'},
+  design:{code:'DESIGN',name:'Proses Desain',color:'red',orderState:'active'},
+  design_done:{code:'DESIGN_DONE',name:'Menunggu Pembayaran',color:'blue',orderState:'active'},
+  printing:{code:'PRINTING',name:'Proses Sublim',color:'amber',orderState:'active'},
+  press:{code:'PRESS',name:'Proses Press',color:'violet',orderState:'active'},
+  done:{code:'DONE',name:'Order Selesai',color:'emerald',orderState:'completed'},
+  archive:{code:'ARCHIVE',name:'Order Diterima Customer',color:'slate',orderState:'completed'},
 }
 export type OrderEditInput = {spkCode:string;customerName:string;productionType:string;meter:number;customerType:string;orderDate:string;dueDate:string;notes:string}
 export type NewOrderInput = Omit<OrderEditInput,'spkCode'>
@@ -125,9 +126,15 @@ async function mutate(action:string,id:string,data:unknown={}) {
 export async function addOrder(input:NewOrderInput,id=crypto.randomUUID()){await mutate('create',id,input);return orders.find(order=>order.id===id)}
 export async function updateOrder(id:string,input:OrderEditInput){await mutate('edit',id,input)}
 export async function deleteOrder(id:string){await mutate('delete',id)}
+export function canMoveOrder(from:BoardStageId,to:BoardStageId,productionType:string){
+  if(from==='archive'||to==='archive'||from===to)return false
+  return Math.abs(PROCESS_STAGES.indexOf(to)-PROCESS_STAGES.indexOf(from))===1
+    || (from==='incoming'&&to==='design_done')
+    || (from==='printing'&&to==='done'&&productionType==='DTF')
+}
 export async function moveOrderToStage(id:string,stage:BoardStageId){
   const order=orders.find(item=>item.id===id)
-  if(!order||order.board_stage==='archive'||stage==='archive'||!PROCESS_STAGES.includes(stage)||Math.abs(PROCESS_STAGES.indexOf(stage)-PROCESS_STAGES.indexOf(order.board_stage))!==1)return false
+  if(!order||order.board_stage==='archive'||stage==='archive'||!PROCESS_STAGES.includes(stage)||!canMoveOrder(order.board_stage,stage,order.production_type))return false
   await mutate('move',id,{code:BOARD_STAGE_META[stage].code});return true
 }
 export async function archiveOrder(id:string,deliveryMethod:DeliveryMethod){await mutate('archive',id,{deliveryMethod});return true}

@@ -108,3 +108,12 @@ test('pending archives are not completed; duplicate archive records count only o
   const report = metrics.processReportEvents([], [finalized, finalized])
   assert.equal(summarizeEvents(report, 'archive', '2026-09-01', '2026-09-08').completed, 1)
 })
+
+test('skipped design and Press have no report intake or completion',()=>{
+  const events=[...transitionEvents(order,'incoming','design_done','2026-09-08T01:00:00Z'),...transitionEvents(order,'printing','done','2026-09-08T02:00:00Z')]
+  for(const stage of ['design','press']) {
+    const summary=summarizeEvents(events,stage,'2026-09-08','2026-09-08')
+    assert.equal(summary.entered,0)
+    assert.equal(summary.completed,0)
+  }
+})

@@ -246,3 +246,166 @@ COMMIT;
 BEGIN;
 DROP FUNCTION IF EXISTS public.printex_import_local(jsonb);
 COMMIT;
+
+-- Preserve existing stage IDs and historical events; no synthetic Press events.
+BEGIN;
+UPDATE public.production_steps SET name=CASE code
+  WHEN 'ORDER_IN' THEN 'Order Masuk' WHEN 'DESIGN' THEN 'Proses Desain'
+  WHEN 'DESIGN_DONE' THEN 'Menunggu Pembayaran' WHEN 'PRINTING' THEN 'Proses Sublim'
+  WHEN 'DONE' THEN 'Order Selesai' WHEN 'ARCHIVE' THEN 'Order Diterima Customer' END,
+  sequence=CASE code WHEN 'ORDER_IN' THEN 1 WHEN 'DESIGN' THEN 2
+  WHEN 'DESIGN_DONE' THEN 3 WHEN 'PRINTING' THEN 4 WHEN 'DONE' THEN 6 WHEN 'ARCHIVE' THEN 7 END
+WHERE code IN ('ORDER_IN','DESIGN','DESIGN_DONE','PRINTING','DONE','ARCHIVE');
+INSERT INTO public.production_steps(code,name,sequence,color_token)
+VALUES('PRESS','Proses Press',5,'violet')
+ON CONFLICT(code) DO UPDATE SET name=excluded.name,sequence=excluded.sequence,color_token=excluded.color_token;
+
+CREATE OR REPLACE FUNCTION public.enforce_adjacent_order_stage()
+RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path = '' AS $$
+DECLARE previous_code text; next_code text; previous_position integer; next_position integer;
+BEGIN
+  IF OLD.current_step_id IS NOT DISTINCT FROM NEW.current_step_id THEN RETURN NEW; END IF;
+  SELECT code,sequence INTO previous_code,previous_position FROM public.production_steps WHERE id=OLD.current_step_id;
+  SELECT code,sequence INTO next_code,next_position FROM public.production_steps WHERE id=NEW.current_step_id;
+  IF previous_code='ORDER_IN' AND next_code='DESIGN_DONE' THEN RETURN NEW; END IF;
+  IF previous_code='PRINTING' AND next_code='DONE' AND NEW.production_type='DTF' THEN RETURN NEW; END IF;
+  IF previous_position IS NULL OR next_position IS NULL OR abs(next_position-previous_position)<>1 THEN
+    RAISE EXCEPTION 'Orders can only move to the previous or next stage, skip design, or skip Press for DTF';
+  END IF;
+  RETURN NEW;
+END $$;
+REVOKE ALL ON FUNCTION public.enforce_adjacent_order_stage() FROM PUBLIC;
+COMMIT;
+
+BEGIN;
+ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS deletion_requested_at timestamptz;
+CREATE OR REPLACE FUNCTION public.printex_list_users() RETURNS TABLE(id uuid,email text,full_name text,role text,is_active boolean)
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = '' AS $$
+BEGIN
+  IF NOT EXISTS(SELECT 1 FROM public.profiles p WHERE p.id=auth.uid() AND p.is_active AND p.role='superadmin') THEN
+    RAISE EXCEPTION 'Hanya Super Admin yang dapat mengelola akun' USING ERRCODE='42501';
+  END IF;
+  RETURN QUERY SELECT p.id,u.email::text,p.full_name,p.role,p.is_active
+    FROM public.profiles p JOIN auth.users u ON u.id=p.id
+    WHERE u.deleted_at IS NULL ORDER BY p.created_at,p.id;
+END $$;
+REVOKE ALL ON FUNCTION public.printex_list_users() FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.printex_list_users() TO authenticated;
+
+CREATE OR REPLACE FUNCTION public.printex_manage_user(p_id uuid,p_name text,p_role text,p_active boolean,p_delete boolean DEFAULT false)
+RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path = '' AS $$
+DECLARE target public.profiles;
+BEGIN
+  -- Serialize role changes so concurrent removals cannot remove the last Super Admin.
+  PERFORM pg_advisory_xact_lock(hashtextextended('printex-user-management',0));
+  IF NOT EXISTS(SELECT 1 FROM public.profiles WHERE id=auth.uid() AND is_active AND role='superadmin') THEN
+    RAISE EXCEPTION 'Hanya Super Admin yang dapat mengelola akun' USING ERRCODE='42501';
+  END IF;
+  SELECT * INTO target FROM public.profiles WHERE id=p_id FOR UPDATE;
+  IF NOT FOUND THEN RAISE EXCEPTION 'Akun tidak ditemukan'; END IF;
+  IF p_id=auth.uid() AND (p_delete OR p_active IS DISTINCT FROM true OR p_role IS DISTINCT FROM 'superadmin') THEN
+    RAISE EXCEPTION 'Tidak dapat menghapus, menonaktifkan, atau menurunkan role akun sendiri';
+  END IF;
+  IF target.role='superadmin' AND target.is_active AND (p_delete OR p_active IS DISTINCT FROM true OR p_role IS DISTINCT FROM 'superadmin')
+    AND NOT EXISTS(SELECT 1 FROM public.profiles WHERE role='superadmin' AND is_active AND id<>p_id) THEN
+    RAISE EXCEPTION 'Minimal satu Super Admin aktif harus tersedia';
+  END IF;
+  IF p_delete THEN
+    UPDATE public.profiles SET is_active=false,deletion_requested_at=now(),updated_at=now() WHERE id=p_id;
+  ELSE
+    IF target.deletion_requested_at IS NOT NULL THEN RAISE EXCEPTION 'Penghapusan akun sedang diproses. Selesaikan penghapusan terlebih dahulu'; END IF;
+    IF nullif(trim(p_name),'') IS NULL OR length(p_name)>100 OR p_role IS NULL OR p_role NOT IN ('superadmin','admin','staff') OR p_active IS NULL THEN
+      RAISE EXCEPTION 'Nama, role, atau status akun tidak valid';
+    END IF;
+    IF EXISTS(SELECT 1 FROM auth.users WHERE id=p_id AND deleted_at IS NOT NULL) THEN RAISE EXCEPTION 'Akun sudah dihapus'; END IF;
+    UPDATE public.profiles SET full_name=trim(p_name),role=p_role,is_active=p_active,updated_at=now() WHERE id=p_id;
+  END IF;
+END $$;
+REVOKE ALL ON FUNCTION public.printex_manage_user(uuid,text,text,boolean,boolean) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.printex_manage_user(uuid,text,text,boolean,boolean) TO authenticated;
+COMMIT;
+
+BEGIN;
+-- Retain business records when an Auth user cascades deletion to its profile.
+DO $$ DECLARE fk record; BEGIN
+  FOR fk IN
+    SELECT c.conname,c.conrelid::regclass AS tbl,a.attname
+    FROM pg_constraint c JOIN pg_attribute a ON a.attrelid=c.conrelid AND a.attnum=c.conkey[1]
+    JOIN pg_class t ON t.oid=c.conrelid JOIN pg_namespace n ON n.oid=t.relnamespace
+    WHERE c.contype='f' AND c.confrelid='public.profiles'::regclass AND n.nspname='public' AND array_length(c.conkey,1)=1
+  LOOP
+    EXECUTE format('ALTER TABLE %s DROP CONSTRAINT %I',fk.tbl,fk.conname);
+    EXECUTE format('ALTER TABLE %s ADD CONSTRAINT %I FOREIGN KEY (%I) REFERENCES public.profiles(id) ON DELETE SET NULL',fk.tbl,fk.conname,fk.attname);
+  END LOOP;
+END $$;
+CREATE OR REPLACE FUNCTION public.enforce_order_archiving()
+RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path = '' AS $$
+DECLARE previous_code text; next_code text;
+BEGIN
+  -- Only FK-triggered removal of user references may update finalized archives.
+  IF TG_OP = 'UPDATE' AND pg_trigger_depth() > 1 THEN
+    IF (to_jsonb(NEW) - 'created_by' - 'assigned_designer_id' - 'updated_at' - 'version')
+      = (to_jsonb(OLD) - 'created_by' - 'assigned_designer_id' - 'updated_at' - 'version')
+      AND (NEW.created_by IS NULL OR NEW.created_by IS NOT DISTINCT FROM OLD.created_by)
+      AND (NEW.assigned_designer_id IS NULL OR NEW.assigned_designer_id IS NOT DISTINCT FROM OLD.assigned_designer_id) THEN
+      RETURN NEW;
+    END IF;
+  END IF;
+  IF current_setting('printex.importing',true) = 'yes' THEN RETURN NEW; END IF;
+  IF TG_OP <> 'INSERT' THEN
+    SELECT code INTO previous_code FROM public.production_steps WHERE id = OLD.current_step_id;
+    IF previous_code = 'ARCHIVE' THEN
+      IF TG_OP = 'DELETE' THEN
+        RAISE EXCEPTION 'Preserve archived orders and reports';
+      END IF;
+      IF (to_jsonb(NEW) - 'archive_finalized_at' - 'updated_at' - 'version')
+         IS DISTINCT FROM (to_jsonb(OLD) - 'archive_finalized_at' - 'updated_at' - 'version') THEN
+        RAISE EXCEPTION 'Archived order data is read-only';
+      END IF;
+      IF OLD.archive_finalized_at IS NOT NULL THEN
+        RETURN OLD; -- repeated clicks cannot change the original report date
+      END IF;
+      IF NEW.archive_finalized_at IS NOT NULL THEN
+        IF OLD.archived_at IS NULL OR OLD.delivery_method IS NULL THEN
+          RAISE EXCEPTION 'Delivery confirmation is required before finalization';
+        END IF;
+        NEW.archive_finalized_at := statement_timestamp();
+      END IF;
+      RETURN NEW;
+    END IF;
+  END IF;
+  IF TG_OP = 'DELETE' THEN RETURN OLD; END IF;
+  IF NEW.archive_finalized_at IS NOT NULL THEN
+    RAISE EXCEPTION 'Move to the archive board before finalizing';
+  END IF;
+  SELECT code INTO next_code FROM public.production_steps WHERE id = NEW.current_step_id;
+  IF next_code = 'ARCHIVE' THEN
+    IF TG_OP = 'INSERT' OR previous_code IS DISTINCT FROM 'DONE' THEN
+      RAISE EXCEPTION 'Only Done orders can be archived';
+    END IF;
+    IF NEW.delivery_method IS NULL OR NEW.delivery_method NOT IN ('pickup', 'delivery') THEN
+      RAISE EXCEPTION 'Confirm pickup or delivery before archiving';
+    END IF;
+    NEW.archived_at := statement_timestamp();
+    NEW.order_state := 'completed';
+  ELSIF NEW.archived_at IS NOT NULL OR NEW.delivery_method IS NOT NULL THEN
+    RAISE EXCEPTION 'Delivery metadata is only valid for archived orders';
+  END IF;
+  RETURN NEW;
+END;
+$$;
+CREATE OR REPLACE FUNCTION public.printex_list_users() RETURNS TABLE(id uuid,email text,full_name text,role text,is_active boolean)
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = '' AS $$
+BEGIN
+  IF NOT EXISTS(SELECT 1 FROM public.profiles p WHERE p.id=auth.uid() AND p.is_active AND p.role='superadmin') THEN
+    RAISE EXCEPTION 'Hanya Super Admin yang dapat mengelola akun' USING ERRCODE='42501';
+  END IF;
+  RETURN QUERY SELECT p.id,u.email::text,p.full_name,p.role,p.is_active
+    FROM public.profiles p JOIN auth.users u ON u.id=p.id
+    WHERE (u.deleted_at IS NULL OR p.deletion_requested_at IS NOT NULL) ORDER BY p.created_at,p.id;
+END $$;
+REVOKE ALL ON FUNCTION public.printex_list_users() FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.printex_list_users() TO authenticated;
+
+
+COMMIT;

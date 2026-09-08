@@ -179,3 +179,6 @@ body {
   .dark *, .dark *::before, .dark *::after { transition-duration: 0.01ms !important; }
 }
 
+
+.board-card-press { background-color: #ede9fe; border-color: #8b5cf6; }
+.dark [data-board-stage="press"] { --stage-accent: #d8b4fe; --stage-border: #8b68ae; --stage-header: #3c2b50; --stage-card: #30243f; }

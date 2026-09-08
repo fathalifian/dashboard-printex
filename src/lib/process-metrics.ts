@@ -1,4 +1,4 @@
-export const PROCESS_STAGES = ['incoming', 'design', 'design_done', 'printing', 'done', 'archive'] as const
+export const PROCESS_STAGES = ['incoming', 'design', 'design_done', 'printing', 'press', 'done', 'archive'] as const
 export type ProcessStage = typeof PROCESS_STAGES[number]
 export type ProcessEvent = {
   id: string

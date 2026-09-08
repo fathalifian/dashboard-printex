@@ -11,11 +11,12 @@ type BoardOrder = { id: string; spkCode: string; customer: string; productionTyp
 
 const STAGES: Array<{ id: StageId; label: string; dot: string; icon: typeof Archive; column: string; header: string; drop: string; card: string }> = [
   { id: 'incoming', label: 'Order Masuk', dot: 'bg-slate-500', icon: Sparkles, column: 'border-slate-200 bg-white', header: 'board-neutral-header border-slate-200 bg-slate-50/90', drop: 'border-slate-300 bg-slate-50', card: 'board-card board-card-incoming' },
-  { id: 'design', label: 'Proses Design', dot: 'bg-rose-500', icon: Palette, column: 'border-rose-200 bg-rose-50/70', header: 'border-rose-200 bg-rose-100/80', drop: 'border-rose-300 bg-rose-100/70', card: 'board-card board-card-design' },
-  { id: 'design_done', label: 'Design Done', dot: 'bg-sky-500', icon: Check, column: 'border-sky-200 bg-sky-50/75', header: 'border-sky-200 bg-sky-100/80', drop: 'border-sky-300 bg-sky-100/70', card: 'board-card board-card-design-done' },
-  { id: 'printing', label: 'Proses Cetak', dot: 'bg-amber-500', icon: Printer, column: 'border-amber-200 bg-amber-50/80', header: 'border-amber-200 bg-amber-100/85', drop: 'border-amber-300 bg-amber-100/75', card: 'board-card board-card-printing' },
-  { id: 'done', label: 'Done', dot: 'bg-emerald-500', icon: Check, column: 'border-emerald-200 bg-emerald-50/75', header: 'border-emerald-200 bg-emerald-100/80', drop: 'border-emerald-300 bg-emerald-100/70', card: 'board-card board-card-done' },
-  { id: 'archive', label: 'Arsip', dot: 'bg-slate-500', icon: Archive, column: 'border-slate-200 bg-white', header: 'board-neutral-header border-slate-200 bg-slate-50/90', drop: 'border-slate-300 bg-slate-50', card: 'board-card board-card-archive' },
+  { id: 'design', label: 'Proses Desain', dot: 'bg-rose-500', icon: Palette, column: 'border-rose-200 bg-rose-50/70', header: 'border-rose-200 bg-rose-100/80', drop: 'border-rose-300 bg-rose-100/70', card: 'board-card board-card-design' },
+  { id: 'design_done', label: 'Menunggu Pembayaran', dot: 'bg-sky-500', icon: Check, column: 'border-sky-200 bg-sky-50/75', header: 'border-sky-200 bg-sky-100/80', drop: 'border-sky-300 bg-sky-100/70', card: 'board-card board-card-design-done' },
+  { id: 'printing', label: 'Proses Sublim', dot: 'bg-amber-500', icon: Printer, column: 'border-amber-200 bg-amber-50/80', header: 'border-amber-200 bg-amber-100/85', drop: 'border-amber-300 bg-amber-100/75', card: 'board-card board-card-printing' },
+  { id: 'press', label: 'Proses Press', dot: 'bg-violet-500', icon: Printer, column: 'border-violet-200 bg-violet-50/75', header: 'border-violet-200 bg-violet-100/80', drop: 'border-violet-300 bg-violet-100/70', card: 'board-card board-card-press' },
+  { id: 'done', label: 'Order Selesai', dot: 'bg-emerald-500', icon: Check, column: 'border-emerald-200 bg-emerald-50/75', header: 'border-emerald-200 bg-emerald-100/80', drop: 'border-emerald-300 bg-emerald-100/70', card: 'board-card board-card-done' },
+  { id: 'archive', label: 'Order Diterima Customer', dot: 'bg-slate-500', icon: Archive, column: 'border-slate-200 bg-white', header: 'board-neutral-header border-slate-200 bg-slate-50/90', drop: 'border-slate-300 bg-slate-50', card: 'board-card board-card-archive' },
 ]
 
 export default function ProductionBoardPage() {
@@ -37,11 +38,11 @@ export default function ProductionBoardPage() {
     if (stage === 'archive') {
       const order = orders.find(item => item.id === orderId)
       if (order?.stage === 'done') { setPendingArchive(order); setDeliveryMethod('pickup'); setArchiveError('') }
-      else setNotice('Pindahkan order ke Done terlebih dahulu sebelum mengonfirmasi penyerahan barang.')
+      else setNotice('Pindahkan order ke Order Selesai terlebih dahulu sebelum mengonfirmasi penyerahan barang.')
       return
     }
     try { if (await moveOrderToStage(orderId, stage)) setNotice('')
-    else setNotice('Perpindahan ditolak. Order hanya boleh dipindahkan satu tahap ke proses berikutnya atau sebelumnya, tanpa melompati proses.') } catch { setNotice('Perubahan belum tersimpan. Periksa pesan koneksi lalu coba lagi.') }
+    else setNotice('Perpindahan ditolak. Gunakan tahap berikutnya/sebelumnya. Pengecualian: Order Masuk ke Menunggu Pembayaran, atau Sublim ke Selesai khusus DTF.') } catch { setNotice('Perubahan belum tersimpan. Periksa pesan koneksi lalu coba lagi.') }
   }
 
   function handleDrop(event: DragEvent<HTMLDivElement>, stage: StageId) {
@@ -62,7 +63,7 @@ export default function ProductionBoardPage() {
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h2 className="text-xl font-bold text-slate-900">Board Produksi</h2>
-          <p className="mt-1 text-sm text-slate-500">Geser order satu tahap ke proses berikutnya atau sebelumnya. Tidak bisa melompati proses.</p>
+          <p className="mt-1 text-sm text-slate-500">Geser satu tahap maju atau mundur. Desain tersedia: Order Masuk langsung ke Menunggu Pembayaran. DTF: Proses Sublim boleh langsung ke Order Selesai.</p>
         </div>
         <div className="flex items-stretch gap-2">
           <Link href="/archives" className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700"><Archive className="h-4 w-4" /> Laporan Arsip</Link>
@@ -72,7 +73,7 @@ export default function ProductionBoardPage() {
 
       {notice && <p role="status" className="rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-700">{notice}</p>}
       <div className="overflow-x-auto pb-3">
-        <div className="grid min-w-[1320px] grid-cols-6 gap-3">
+        <div className="grid min-w-[1610px] grid-cols-7 gap-3">
           {STAGES.map((stage) => {
             const StageIcon = stage.icon
             const stageOrders = ordersByStage[stage.id]
@@ -120,7 +121,7 @@ export default function ProductionBoardPage() {
                           <span className="board-card-tag rounded-md px-1.5 py-0.5 font-medium text-slate-600">{order.productionType}</span><span>{order.meter} m</span>
                         </div>
                         <p className={cn('mt-2 text-[11px] font-medium', overdue ? 'board-due-overdue' : 'text-slate-500')}>{overdue && '⚠ '}Due: {formatDueDate(order.dueAt, completed ? 'completed' : 'active')}</p>
-                        {stage.id === 'done' && <button type="button" onPointerDown={event => event.stopPropagation()} onClick={() => { setPendingArchive(order); setDeliveryMethod('pickup'); setArchiveError('') }} className="mt-3 flex w-full items-center justify-center gap-2 rounded-lg border border-emerald-200 bg-white px-3 py-2 text-xs font-bold text-emerald-700"><Archive className="h-4 w-4" /> Arsipkan</button>}
+                        {stage.id === 'done' && <button type="button" onPointerDown={event => event.stopPropagation()} onClick={() => { setPendingArchive(order); setDeliveryMethod('pickup'); setArchiveError('') }} className="mt-3 flex w-full items-center justify-center gap-2 rounded-lg border border-emerald-200 bg-white px-3 py-2 text-xs font-bold text-emerald-700"><Archive className="h-4 w-4" /> Konfirmasi Diterima</button>}
                         {stage.id === 'archive' && <><p className="mt-3 text-xs font-medium text-emerald-600">{order.deliveryMethod === 'pickup' ? 'Sudah diambil pembeli' : order.deliveryMethod === 'delivery' ? 'Sudah dikirim / diterima' : 'Penyerahan tercatat'}</p><button type="button" onClick={async () => { try { if (await finishArchivedOrder(order.id)) setNotice(`${order.spkCode} tersimpan di Laporan Arsip dengan tanggal hari ini (WIB).`); else setNotice('Order sudah diselesaikan atau data penyerahannya belum lengkap.') } catch { setNotice('Laporan belum tersimpan. Periksa koneksi database lalu coba lagi.') } }} className="mt-3 flex w-full items-center justify-center gap-2 rounded-lg bg-blue-600 px-3 py-2 text-xs font-bold text-white hover:bg-blue-700"><Check className="h-4 w-4" /> Selesai</button></>}
                       </article>
                     )
@@ -132,16 +133,16 @@ export default function ProductionBoardPage() {
           })}
         </div>
       </div>
-      <p className="text-xs leading-5 text-slate-400">Order belum selesai tetap tersedia besok. Setelah penyerahan barang, pindahkan Done ke Arsip. Klik Selesai di kartu Arsip untuk mengeluarkannya dari board dan menyimpan Laporan Arsip berdasarkan tanggal klik (WIB).</p>
+      <p className="text-xs leading-5 text-slate-400">Order belum selesai tetap tersedia besok. Setelah penyerahan barang, pindahkan Order Selesai ke Order Diterima Customer. Klik Selesai di kartu Order Diterima Customer untuk mengeluarkannya dari board dan menyimpan Laporan Arsip berdasarkan tanggal klik (WIB).</p>
 
       {pendingArchive && <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 p-4 backdrop-blur-sm" role="dialog" aria-modal="true" aria-labelledby="archive-order-title" onKeyDown={event => { if (event.key === 'Escape') setPendingArchive(null) }}>
         <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl">
-          <h3 id="archive-order-title" className="text-lg font-bold text-slate-900">Arsipkan order selesai</h3>
+          <h3 id="archive-order-title" className="text-lg font-bold text-slate-900">Konfirmasi penerimaan order</h3>
           <p className="mt-2 text-sm text-slate-600">{pendingArchive.spkCode} · {pendingArchive.customer}</p>
           <label className="mt-5 block text-sm font-medium text-slate-700">Penyerahan barang<select autoFocus value={deliveryMethod} onChange={event => setDeliveryMethod(event.target.value as DeliveryMethod)} className="mt-2 w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5"><option value="pickup">Diambil pembeli</option><option value="delivery">Sudah dikirim</option></select></label>
-          <p className="mt-3 text-xs leading-5 text-slate-500">Pastikan barang sudah diserahkan. Order akan tampil di kolom Arsip. Setelah itu, tombol Selesai menyimpannya ke Laporan Arsip dan mengeluarkannya dari board.</p>
+          <p className="mt-3 text-xs leading-5 text-slate-500">Pastikan barang sudah diserahkan. Order akan tampil di kolom Order Diterima Customer. Setelah itu, tombol Selesai menyimpannya ke Laporan Arsip dan mengeluarkannya dari board.</p>
           {archiveError && <p role="alert" className="mt-3 text-sm text-red-600">{archiveError}</p>}
-          <div className="mt-6 flex justify-end gap-3"><button type="button" onClick={() => setPendingArchive(null)} className="rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-600">Batal</button><button type="button" onClick={async () => { try { if (await archiveOrder(pendingArchive.id, deliveryMethod)) setPendingArchive(null); else setArchiveError('Order harus berada di Done dan belum diarsipkan. Periksa kembali board.'); } catch { setArchiveError('Arsip belum tersimpan. Periksa koneksi database lalu coba lagi.') } }} className="rounded-xl bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white">Simpan ke Arsip</button></div>
+          <div className="mt-6 flex justify-end gap-3"><button type="button" onClick={() => setPendingArchive(null)} className="rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-600">Batal</button><button type="button" onClick={async () => { try { if (await archiveOrder(pendingArchive.id, deliveryMethod)) setPendingArchive(null); else setArchiveError('Order harus berada di Order Selesai dan belum diarsipkan. Periksa kembali board.'); } catch { setArchiveError('Arsip belum tersimpan. Periksa koneksi database lalu coba lagi.') } }} className="rounded-xl bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white">Konfirmasi Diterima</button></div>
         </div>
       </div>}
 
