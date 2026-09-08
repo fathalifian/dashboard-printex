@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo, useState, type DragEvent } from 'react'
+import { useEffect, useMemo, useState, type DragEvent } from 'react'
 import Link from 'next/link'
 import { OrderTimer } from '@/components/production-timers'
 import { AlertTriangle, Archive, Check, Palette, Pencil, Printer, Sparkles, Star, Trash2, X } from 'lucide-react'
@@ -24,6 +24,20 @@ export default function ProductionBoardPage() {
   const sharedOrders = useProductionOrders()
   const [draggedId, setDraggedId] = useState<string | null>(null)
   const [dragOverStage, setDragOverStage] = useState<StageId | null>(null)
+  useEffect(() => {
+    const clearDrag = () => { setDraggedId(null); setDragOverStage(null) }
+    const onKey = (event: KeyboardEvent) => { if (event.key === 'Escape') clearDrag() }
+    window.addEventListener('dragend', clearDrag)
+    window.addEventListener('drop', clearDrag)
+    window.addEventListener('blur', clearDrag)
+    window.addEventListener('keydown', onKey)
+    return () => {
+      window.removeEventListener('dragend', clearDrag)
+      window.removeEventListener('drop', clearDrag)
+      window.removeEventListener('blur', clearDrag)
+      window.removeEventListener('keydown', onKey)
+    }
+  }, [])
   const [pendingDelete, setPendingDelete] = useState<BoardOrder | null>(null)
   const [pendingArchive, setPendingArchive] = useState<BoardOrder | null>(null)
   const [deliveryMethod, setDeliveryMethod] = useState<DeliveryMethod>('pickup')
@@ -105,11 +119,11 @@ export default function ProductionBoardPage() {
                         draggable={stage.id !== 'archive'}
                         onDragStart={(event) => { event.dataTransfer.effectAllowed = 'move'; event.dataTransfer.setData('text/plain', order.id); setDraggedId(order.id) }}
                         onDragEnd={() => { setDraggedId(null); setDragOverStage(null) }}
-                        className={cn('group relative cursor-grab rounded-2xl border p-3.5 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md active:cursor-grabbing', stage.card, overdue && 'board-card-overdue', draggedId === order.id && 'scale-95 ring-2 ring-blue-500')}
+                        className={cn('group relative select-none cursor-grab rounded-2xl border p-3.5 shadow-sm transition-shadow hover:shadow-md active:cursor-grabbing', stage.card, overdue && 'board-card-overdue', draggedId === order.id && 'scale-95 ring-2 ring-blue-500')}
                       >
                         <div className="flex items-start justify-between gap-2 pr-10">
                           <div className="flex min-w-0 items-center gap-1.5">
-                            <Link href={`/orders/${order.id}`} className="whitespace-nowrap font-mono text-xs font-bold text-blue-700 hover:underline">{order.spkCode}</Link>
+                            <Link draggable={false} href={`/orders/${order.id}`} className="whitespace-nowrap font-mono text-xs font-bold text-blue-700 hover:underline">{order.spkCode}</Link>
                             {order.customerType === 'priority' && <span title="Customer prioritas" aria-label="Customer prioritas" className="inline-flex shrink-0 items-center justify-center rounded-md border border-amber-200 bg-amber-50 p-1 text-amber-600"><Star aria-hidden="true" className="h-3 w-3 fill-current" /></span>}
                           </div>
                           {stage.id !== 'archive' && <div className="absolute right-3.5 top-3.5 flex flex-col items-center gap-1.5">

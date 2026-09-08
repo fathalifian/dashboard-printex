@@ -179,3 +179,22 @@ body {
 
 
 .dark [data-board-stage="press"] { --stage-accent: #d8b4fe; --stage-border: #8b68ae; --stage-header: #3c2b50; --stage-card: #30243f; }
+
+/* Light cards keep neutral surfaces; the left edge identifies their stage. */
+:root:not(.dark) .board-column { --card-accent: #64748b; }
+:root:not(.dark) [data-board-stage="design"] { --card-accent: #e11d48; }
+:root:not(.dark) [data-board-stage="design_done"] { --card-accent: #0284c7; }
+:root:not(.dark) [data-board-stage="printing"] { --card-accent: #d97706; }
+:root:not(.dark) [data-board-stage="press"] { --card-accent: #7c3aed; }
+:root:not(.dark) [data-board-stage="done"] { --card-accent: #059669; }
+:root:not(.dark) .board-column .board-card {
+  background-color: #fff;
+  border-color: #cbd5e1;
+  border-left: 4px solid var(--card-accent);
+  box-shadow: 0 2px 6px rgb(15 23 42 / 0.10);
+}
+:root:not(.dark) .board-card :is(.text-slate-900, .text-slate-800) { color: #0f172a; }
+:root:not(.dark) .board-card :is(.text-slate-400, .text-slate-500, .text-slate-600) { color: #475569; }
+:root:not(.dark) .board-card a:not(.board-edit-button) { color: #1d4ed8; }
+:root:not(.dark) .board-card .board-card-tag { background-color: #f1f5f9; color: #334155; }
+:root:not(.dark) .board-column .board-card-overdue { border-top-color: #dc2626; border-right-color: #dc2626; border-bottom-color: #dc2626; }
