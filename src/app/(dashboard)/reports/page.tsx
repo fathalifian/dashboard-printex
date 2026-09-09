@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import DateRangeFilter, { todayRange } from '@/components/date-range-filter'
 import { ProcessTimingReport } from '@/components/production-timers'
 import { ArrowDownToLine, ArrowUpRight, ChartColumn, CheckCheck, Download } from 'lucide-react'
 import { BOARD_STAGE_META, useAllOrders, useProcessHistory } from '@/lib/production-board'
@@ -18,13 +19,9 @@ export default function ProcessReportsPage() {
   const orders = useAllOrders()
   const history = useProcessHistory()
   const [stage, setStage] = useState<ProcessStage>('incoming')
-  const [period, setPeriod] = useState('today')
-  const [anchor, setAnchor] = useState(() => jakartaDate(new Date()))
-  const [customStart, setCustomStart] = useState(anchor)
-  const [customEnd, setCustomEnd] = useState(anchor)
+  const [range,setRange] = useState(todayRange)
+  const {start,end} = range
   const isArchive = stage === 'archive'
-  const start = period === 'custom' ? customStart : period === 'today' ? anchor : shiftDay(anchor, -6)
-  const end = period === 'custom' ? customEnd : anchor
   const invalid = !start || !end || start > end || (Date.parse(end) - Date.parse(start)) / 86400000 > 92
   const source = processReportEvents(history, orders)
   const stats = summarizeEvents(source, stage, invalid ? '9999' : start, invalid ? '0000' : end)
@@ -41,7 +38,7 @@ export default function ProcessReportsPage() {
   ]
 
   function exportCsv() {
-    const rows = [['Waktu (WIB)', 'SPK', 'Pelanggan', 'Proses', 'Aktivitas'], ...stats.events.map(e => [new Date(e.occurredAt).toLocaleString('id-ID', { timeZone: 'Asia/Jakarta' }), e.spkCode, e.customerName, BOARD_STAGE_META[e.stage].name, eventLabel(e.kind)])]
+    const rows = [['Waktu', 'SPK', 'Pelanggan', 'Proses', 'Aktivitas'], ...stats.events.map(e => [new Date(e.occurredAt).toLocaleString('id-ID', { timeZone: 'Asia/Jakarta' }), e.spkCode, e.customerName, BOARD_STAGE_META[e.stage].name, eventLabel(e.kind)])]
     const csv = rows.map(row => row.map(value => `"${(/^[=+@\-\t\r]/.test(value) ? "'" + value : value).replaceAll('"', '""')}"`).join(',')).join('\r\n')
     const url = URL.createObjectURL(new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' }))
     const link = document.createElement('a')
@@ -60,9 +57,7 @@ export default function ProcessReportsPage() {
 
       <section className="flex flex-wrap items-end gap-4 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm" aria-label="Filter laporan">
         <label className="flex min-w-44 flex-col gap-2 text-xs font-semibold text-slate-500">Proses<select className={fieldClass} value={stage} onChange={e => setStage(e.target.value as ProcessStage)}>{PROCESS_STAGES.map(id => <option key={id} value={id}>{BOARD_STAGE_META[id].name}</option>)}</select></label>
-        <label className="flex flex-col gap-2 text-xs font-semibold text-slate-500">Periode<select className={fieldClass} value={period} onChange={e => { setPeriod(e.target.value); setAnchor(jakartaDate(new Date())) }}><option value="today">Hari ini</option><option value="week">7 hari terakhir</option><option value="custom">Rentang tanggal</option></select></label>
-        {period === 'custom' && <><label className="flex flex-col gap-2 text-xs font-semibold text-slate-500">Dari<input type="date" className={fieldClass} value={customStart} onChange={e => setCustomStart(e.target.value)} /></label><label className="flex flex-col gap-2 text-xs font-semibold text-slate-500">Sampai<input type="date" className={fieldClass} value={customEnd} onChange={e => setCustomEnd(e.target.value)} /></label></>}
-        <span className="pb-3 text-xs text-slate-400">Zona waktu: WIB</span>
+        <DateRangeFilter value={range} onChange={setRange} />
       </section>
       {invalid && <p role="alert" className="text-sm text-red-600">Pilih tanggal yang valid, tanggal akhir setelah tanggal awal, maksimal 93 hari.</p>}
 
@@ -81,10 +76,8 @@ export default function ProcessReportsPage() {
       </section>
 
       {!invalid && <ProcessTimingReport stage={stage} start={start} end={end} />}
-      <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm"><div className="border-b border-slate-100 p-5"><h3 className="font-bold text-slate-900">Ringkasan proses</h3><p className="mt-1 text-xs text-slate-500">Mengikuti proses dan periode yang dipilih.</p></div><div className="overflow-x-auto"><table className="w-full text-left text-sm"><thead className="bg-slate-50 text-xs text-slate-500"><tr>{(isArchive ? ['Proses', 'Selesai'] : ['Proses', 'Masuk', 'Selesai']).map(title => <th key={title} className="px-5 py-3 font-medium">{title}</th>)}</tr></thead><tbody>{PROCESS_STAGES.filter(id => stage === id).map(id => { const count = summarizeEvents(source, id, invalid ? '9999' : start, invalid ? '0000' : end); return <tr key={id} className="border-t border-slate-100 text-slate-700"><td className="px-5 py-4 font-medium">{BOARD_STAGE_META[id].name}</td>{!isArchive && <td className="px-5 py-4 text-blue-600">{count.entered}</td>}<td className="px-5 py-4 font-semibold text-emerald-600">{count.completed}</td></tr> })}</tbody></table></div></section>
 
 
-      <div className="rounded-xl border border-blue-100 bg-blue-50 p-4 text-xs leading-6 text-blue-700"><p className="font-semibold">Pencatatan online</p><p>Riwayat tersimpan di database dan diperbarui antarperangkat. Perubahan proses dicatat otomatis oleh database.</p><p>Setiap order memiliki satu ID tetap. Masuk dan selesai masing-masing dihitung satu kali per proses, pada tanggal pertama tercatat. Perpindahan berulang tidak menambah hitungan, termasuk pada hari berikutnya. Selesai berarti keluar ke tahap lebih lanjut. Khusus Arsip, selesai dihitung pada tanggal tombol Selesai ditekan, bukan tanggal masuk Arsip. Angka selesai bisa lebih besar dari masuk karena pekerjaan berasal dari hari sebelumnya.</p></div>
     </div>
   )
 }

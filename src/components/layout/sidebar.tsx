@@ -5,7 +5,6 @@ import Image from 'next/image'
 import { usePathname } from 'next/navigation'
 import {
   LayoutDashboard,
-  ListOrdered,
   CalendarDays,
   Settings,
   ChartColumn,
@@ -21,7 +20,6 @@ const navigation = [
   { name: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
   { name: 'Board Produksi', href: '/schedule', icon: CalendarDays },
   { name: 'Laporan Proses', href: '/reports', icon: ChartColumn },
-  { name: 'Semua Order', href: '/orders', icon: ListOrdered },
   { name: 'Laporan Arsip', href: '/archives', icon: Archive },
   { name: 'Pengaturan', href: '/settings', icon: Settings },
 ]

@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState, type DragEvent } from 'react'
 import Link from 'next/link'
 import { OrderTimer } from '@/components/production-timers'
-import { AlertTriangle, Archive, Check, Palette, Pencil, Printer, Sparkles, Star, Trash2, X } from 'lucide-react'
+import { AlertTriangle, Archive, Check, Palette, Pencil, Printer, Save, Sparkles, Star, Trash2, X } from 'lucide-react'
 import { formatDueDate, isOverdue, cn } from '@/lib/utils'
 import { archiveOrder, finishArchivedOrder, deleteOrder, moveOrderToStage, useProductionOrders, type BoardStageId, type DeliveryMethod } from '@/lib/production-board'
 
@@ -43,6 +43,9 @@ export default function ProductionBoardPage() {
   const [deliveryMethod, setDeliveryMethod] = useState<DeliveryMethod>('pickup')
   const [archiveError, setArchiveError] = useState('')
   const [notice, setNotice] = useState('')
+  const [pendingFinish, setPendingFinish] = useState<BoardOrder | null>(null)
+  const [finishError, setFinishError] = useState('')
+  const [finishing, setFinishing] = useState(false)
   const orders: BoardOrder[] = sharedOrders.map((order) => ({ id: order.id, spkCode: order.spk_code, customer: order.customer.name, productionType: order.production_type, meter: order.meter, customerType: order.customer_type, dueAt: order.due_at, stage: order.board_stage, deliveryMethod: order.archive?.deliveryMethod }))
 
   const ordersByStage = useMemo(() => Object.fromEntries(STAGES.map((stage) => [stage.id, orders.filter((order) => order.stage === stage.id)])) as Record<StageId, BoardOrder[]>, [orders])
@@ -129,16 +132,18 @@ export default function ProductionBoardPage() {
                           {stage.id !== 'archive' && <div className="absolute right-3.5 top-3.5 flex flex-col items-center gap-1.5">
                             <Link href={`/orders/${order.id}/edit`} draggable={false} onPointerDown={(event) => event.stopPropagation()} aria-label={`Edit ${order.spkCode}`} title="Edit order" className="board-edit-button"><Pencil className="h-3.5 w-3.5" /></Link>
                             <button type="button" draggable={false} onPointerDown={(event) => event.stopPropagation()} onClick={() => setPendingDelete(order)} aria-label={`Hapus ${order.spkCode}`} title="Hapus order" className="board-edit-button"><Trash2 className="h-3.5 w-3.5 text-red-600" /></button>
+                            {stage.id === 'done' && <button type="button" draggable={false} onPointerDown={event => event.stopPropagation()} onClick={() => { setPendingArchive(order); setDeliveryMethod('pickup'); setArchiveError('') }} aria-label={`Konfirmasi diterima ${order.spkCode}`} title="Konfirmasi diterima" className="board-edit-button"><Archive className="h-3.5 w-3.5 text-emerald-600" /></button>}
                           </div>}
+                          {stage.id === 'archive' && <button type="button" draggable={false} onPointerDown={event => event.stopPropagation()} onClick={() => { setPendingFinish(order); setFinishError('') }} aria-label={`Simpan ${order.spkCode} ke laporan arsip`} title="Simpan ke laporan arsip" className="board-edit-button absolute right-3.5 top-3.5"><Save className="h-3.5 w-3.5 text-blue-600" /></button>}
+
                         </div>
                         <p title={order.customer} className="mt-2 break-words pr-10 text-sm font-bold leading-5 text-slate-900">{order.customer}</p>
                         <div className="mt-2 flex min-h-5 flex-wrap items-center gap-1.5 pr-10 text-xs text-slate-400">
                           <span className="board-card-tag rounded-md px-1.5 py-0.5 font-medium text-slate-600">{order.productionType}</span><span>{order.meter} m</span>
                         </div>
-                        <p className={cn('mt-2 text-[11px] font-medium', overdue ? 'board-due-overdue' : 'text-slate-500')}>{overdue && '⚠ '}Due: {formatDueDate(order.dueAt, completed ? 'completed' : 'active')}</p>
+                        <p className={cn('mt-2 pr-10 text-[11px] font-medium', overdue ? 'board-due-overdue' : 'text-slate-500')}>{overdue && '⚠ '}Due: {formatDueDate(order.dueAt, completed ? 'completed' : 'active')}</p>
                         <OrderTimer id={order.id} hideTotal={stage.id !== 'archive'} />
-                        {stage.id === 'done' && <button type="button" onPointerDown={event => event.stopPropagation()} onClick={() => { setPendingArchive(order); setDeliveryMethod('pickup'); setArchiveError('') }} className="mt-3 flex w-full items-center justify-center gap-2 rounded-lg border border-emerald-200 bg-white px-3 py-2 text-xs font-bold text-emerald-700"><Archive className="h-4 w-4" /> Konfirmasi Diterima</button>}
-                        {stage.id === 'archive' && <><p className="mt-3 text-xs font-medium text-emerald-600">{order.deliveryMethod === 'pickup' ? 'Sudah diambil pembeli' : order.deliveryMethod === 'delivery' ? 'Sudah dikirim / diterima' : 'Penyerahan tercatat'}</p><button type="button" onClick={async () => { try { if (await finishArchivedOrder(order.id)) setNotice(`${order.spkCode} tersimpan di Laporan Arsip dengan tanggal hari ini (WIB).`); else setNotice('Order sudah diselesaikan atau data penyerahannya belum lengkap.') } catch { setNotice('Laporan belum tersimpan. Periksa koneksi database lalu coba lagi.') } }} className="mt-3 flex w-full items-center justify-center gap-2 rounded-lg bg-blue-600 px-3 py-2 text-xs font-bold text-white hover:bg-blue-700"><Check className="h-4 w-4" /> Selesai</button></>}
+                        {stage.id === 'archive' && <><p className="mt-3 text-xs font-medium text-emerald-600">{order.deliveryMethod === 'pickup' ? 'Sudah diambil pembeli' : order.deliveryMethod === 'delivery' ? 'Sudah dikirim / diterima' : 'Penyerahan tercatat'}</p></>}
                       </article>
                     )
                   })}
@@ -149,16 +154,38 @@ export default function ProductionBoardPage() {
           })}
         </div>
       </div>
-      <p className="text-xs leading-5 text-slate-400">Order belum selesai tetap tersedia besok. Setelah penyerahan barang, pindahkan Order Selesai ke Order Diterima Customer. Klik Selesai di kartu Order Diterima Customer untuk mengeluarkannya dari board dan menyimpan Laporan Arsip berdasarkan tanggal klik (WIB).</p>
+      <p className="text-xs leading-5 text-slate-400">Order belum selesai tetap tersedia besok. Setelah penyerahan barang, pindahkan Order Selesai ke Order Diterima Customer. Klik ikon Simpan di kartu Order Diterima Customer untuk mengeluarkannya dari board dan menyimpan Laporan Arsip berdasarkan tanggal klik.</p>
 
       {pendingArchive && <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 p-4 backdrop-blur-sm" role="dialog" aria-modal="true" aria-labelledby="archive-order-title" onKeyDown={event => { if (event.key === 'Escape') setPendingArchive(null) }}>
         <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl">
           <h3 id="archive-order-title" className="text-lg font-bold text-slate-900">Konfirmasi penerimaan order</h3>
           <p className="mt-2 text-sm text-slate-600">{pendingArchive.spkCode} · {pendingArchive.customer}</p>
           <label className="mt-5 block text-sm font-medium text-slate-700">Penyerahan barang<select autoFocus value={deliveryMethod} onChange={event => setDeliveryMethod(event.target.value as DeliveryMethod)} className="mt-2 w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5"><option value="pickup">Diambil pembeli</option><option value="delivery">Sudah dikirim</option></select></label>
-          <p className="mt-3 text-xs leading-5 text-slate-500">Pastikan barang sudah diserahkan. Order akan tampil di kolom Order Diterima Customer. Setelah itu, tombol Selesai menyimpannya ke Laporan Arsip dan mengeluarkannya dari board.</p>
+          <p className="mt-3 text-xs leading-5 text-slate-500">Pastikan barang sudah diserahkan. Order akan tampil di kolom Order Diterima Customer. Setelah itu, ikon Simpan menyimpannya ke Laporan Arsip dan mengeluarkannya dari board.</p>
           {archiveError && <p role="alert" className="mt-3 text-sm text-red-600">{archiveError}</p>}
           <div className="mt-6 flex justify-end gap-3"><button type="button" onClick={() => setPendingArchive(null)} className="rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-600">Batal</button><button type="button" onClick={async () => { try { if (await archiveOrder(pendingArchive.id, deliveryMethod)) setPendingArchive(null); else setArchiveError('Order harus berada di Order Selesai dan belum diarsipkan. Periksa kembali board.'); } catch { setArchiveError('Arsip belum tersimpan. Periksa koneksi database lalu coba lagi.') } }} className="rounded-xl bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white">Konfirmasi Diterima</button></div>
+        </div>
+      </div>}
+
+      {pendingFinish && <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 p-4 backdrop-blur-sm" role="dialog" aria-modal="true" aria-labelledby="finish-order-title" onKeyDown={event => { if(event.key === 'Escape' && !finishing) setPendingFinish(null) }}>
+        <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl">
+          <h3 id="finish-order-title" className="text-lg font-bold text-slate-900">Simpan ke laporan arsip?</h3>
+          <p className="mt-2 text-sm text-slate-600">{pendingFinish.spkCode} - {pendingFinish.customer}</p>
+          <p className="mt-3 text-sm text-slate-500">Order akan dikeluarkan dari board dan disimpan di Laporan Arsip dengan tanggal hari ini.</p>
+          {finishError && <p role="alert" className="mt-3 text-sm text-red-600">{finishError}</p>}
+          <div className="mt-6 flex justify-end gap-3">
+            <button autoFocus type="button" disabled={finishing} onClick={() => setPendingFinish(null)} className="rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-600">Batal</button>
+            <button type="button" disabled={finishing} onClick={async () => {
+              if(finishing)return
+              setFinishing(true); setFinishError('')
+              try {
+                await finishArchivedOrder(pendingFinish.id)
+                setNotice(pendingFinish.spkCode + ' tersimpan di Laporan Arsip.')
+                setPendingFinish(null)
+              } catch {setFinishError('Laporan belum tersimpan. Periksa koneksi dan coba lagi.')}
+              finally {setFinishing(false)}
+            }} className="rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-50">{finishing?'Menyimpan...':'Lanjut'}</button>
+          </div>
         </div>
       </div>}
 

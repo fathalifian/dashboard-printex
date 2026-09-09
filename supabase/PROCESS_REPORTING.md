@@ -15,12 +15,12 @@ Realtime memberi notifikasi perubahan dan aplikasi mengambil ulang data dari dat
 
 Lihat ONLINE_SETUP.md untuk setup database. Migrasi 0009 menghapus endpoint impor browser lama tanpa menghapus order online yang sudah tersimpan.
 
-## Timer dan durasi
+## Timer dan durasi produksi
 
-Timer menggunakan process_history mentah dari database, termasuk kunjungan ulang. Waktu di suatu tahap dihitung dari masuk sampai keluar tahap tersebut, sehingga lompatan langsung hanya memberi durasi kepada tahap yang benar-benar dilalui. Durasi tahap yang dikunjungi kembali dijumlahkan. Riwayat yang tidak tersedia tidak dibuat-buat.
+Timer dimulai pada catatan masuk pertama ke Proses Desain atau Menunggu Pembayaran, dan berhenti pada catatan masuk pertama ke Order Selesai. Tidak menggunakan tanggal pembuatan order atau tanggal diterima customer sebagai pengganti timestamp yang hilang. Data yang tidak lengkap ditampilkan sebagai belum tercatat.
 
-Total dihitung sejak catatan Order Masuk pertama (fallback created_at order), sampai archived_at saat penerimaan/pengiriman dikonfirmasi. archive_finalized_at tidak menambah total waktu produksi/penyerahan. Selama belum diterima, tampilan diperbarui setiap detik dari timestamp yang tersimpan, tanpa penulisan timer per detik ke database. Menggunakan durasi kalender, termasuk malam/hari libur.
+Order Masuk tidak menampilkan timer berjalan. Tahap yang dihitung: Desain, Menunggu Pembayaran, Sublim, dan Press. Tahap dilewati tidak diberi durasi. Kunjungan ulang sebelum penyelesaian pertama dijumlahkan; total tetap durasi kalender antara awal dan akhir produksi, termasuk malam dan hari libur. Setelah penyelesaian pertama, total terkunci meskipun kartu dipindahkan kembali.
 
-Laporan menampilkan rata-rata durasi per order yang telah keluar dari tahap terpilih, mengikuti tanggal keluar terakhir dalam WIB. Order yang masih di tahap dan tahap yang dilewati tidak menjadi sampel. Rata-rata total menggunakan order yang diterima pada periode terpilih.
+Board menampilkan total produksi pada Order Selesai dan Order Diterima Customer. Detail order menampilkan rincian tahap produksi. Rata-rata total laporan memakai tanggal masuk Order Selesai dan mengecualikan order yang belum memiliki waktu awal/akhir. Rata-rata tahap mengikuti tanggal keluar terakhir di dalam jendela produksi.
 
-Perhitungan tidak memerlukan migrasi baru. Uji durasi: node --test src/lib/process-timing.test.mjs
+Perhitungan menggunakan riwayat database yang sudah tersimpan, tanpa migrasi baru atau penulisan timer per detik.
