@@ -3,7 +3,7 @@
 import { useState } from 'react'
 import DateRangeFilter, { todayRange } from '@/components/date-range-filter'
 import { ProcessTimingReport } from '@/components/production-timers'
-import { ArrowDownToLine, ArrowUpRight, ChartColumn, CheckCheck, Download } from 'lucide-react'
+import { ArrowDownToLine, ArrowUpRight, CheckCheck, Download } from 'lucide-react'
 import { BOARD_STAGE_META, useAllOrders, useProcessHistory } from '@/lib/production-board'
 import { jakartaDate, PROCESS_STAGES, summarizeEvents, processReportEvents, type ProcessStage } from '@/lib/process-metrics'
 
@@ -50,8 +50,7 @@ export default function ProcessReportsPage() {
 
   return (
     <div className="mx-auto max-w-[1500px] space-y-6 pb-8">
-      <div className="flex flex-wrap items-center justify-between gap-4">
-        <div><div className="mb-1 flex items-center gap-2 text-xs font-semibold uppercase tracking-widest text-blue-600"><ChartColumn className="h-4 w-4" /> Produktivitas tim</div><h2 className="text-2xl font-bold text-slate-900">Laporan Proses</h2><p className="mt-1 text-sm text-slate-500">Pantau pekerjaan masuk dan penyelesaian di setiap tahap produksi.</p></div>
+      <div className="flex flex-wrap items-center justify-end gap-4">
         <button onClick={exportCsv} disabled={invalid || !stats.events.length} className="flex items-center gap-2 rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-blue-700 disabled:opacity-40"><Download className="h-4 w-4" /> Unduh CSV</button>
       </div>
 
@@ -72,7 +71,7 @@ export default function ProcessReportsPage() {
             {chart.map(day => <div key={day.day} className="flex h-full flex-1 flex-col justify-end"><div className="flex h-48 items-end justify-center gap-1.5 border-b border-slate-100">{[...(!isArchive ? [{ value: day.entered, color: 'bg-blue-500', label: 'masuk' }] : []), { value: day.completed, color: 'bg-emerald-500', label: 'selesai' }].map(bar => <div key={bar.label} className="flex h-full w-6 flex-col justify-end text-center"><span className="mb-1 text-[10px] font-semibold text-slate-500">{bar.value}</span><div title={`${day.day}: ${bar.value} ${bar.label}`} className={`w-full rounded-t-md ${bar.color}`} style={{ height: `${Math.max(1, bar.value / max * 85)}%`, opacity: bar.value ? 1 : 0.15 }} /></div>)}</div><p className="py-3 text-center text-[11px] text-slate-500">{day.day.slice(8)} / {day.day.slice(5, 7)}</p></div>)}
           </div>
         </div>
-        {!stats.events.length && <p className="mt-4 text-center text-sm text-slate-400">Belum ada aktivitas tercatat pada periode ini. Perubahan tahap di Board Produksi akan muncul di sini.</p>}
+        {!stats.events.length && <p className="mt-4 text-center text-sm text-slate-400">Belum ada aktivitas pada periode ini.</p>}
       </section>
 
       {!invalid && <ProcessTimingReport stage={stage} start={start} end={end} />}

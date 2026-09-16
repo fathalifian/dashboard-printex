@@ -3,6 +3,7 @@
 import { useSyncExternalStore } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { PROCESS_STAGES, type ProcessEvent } from '@/lib/process-metrics'
+import { ACCESS_SCHEMA_VERSION, canManageOrders, canMoveBetweenStages, normalizeRole } from '@/lib/access-control'
 
 export type BoardStageId = typeof PROCESS_STAGES[number]
 export type DeliveryMethod = 'pickup' | 'delivery'
@@ -54,6 +55,8 @@ async function fetchSnapshot() {
   const {data:profile,error:profileError}=await db().from('profiles').select('id,full_name,role,is_active').eq('id',connection.profile?.id??'').maybeSingle()
   if(profileError)throw profileError
   if(!profile?.is_active)throw new Error('Akses akun sudah dinonaktifkan. Hubungi admin.')
+  const role = normalizeRole(profile.role)
+  if (!role) throw new Error('Role akun tidak valid. Hubungi Owner.')
   const [orderRows,customers,steps,eventRows] = await Promise.all(['orders','customers','production_steps','process_history'].map(allRows))
   const stepMap = new Map(steps.map(step => [step.id,step]))
   const customerMap = new Map(customers.map(customer => [customer.id,customer]))
@@ -74,7 +77,7 @@ async function fetchSnapshot() {
   const nextHistory: ProcessEvent[] = eventRows.map(row=>({id:String(row.id),orderId:String(row.order_identity??row.order_id),spkCode:String(row.spk_code),customerName:String(row.customer_name??''),
     stage:stageFromStep(row.step_id),kind:row.event_kind as ProcessEvent['kind'],occurredAt:String(row.occurred_at),actorName:row.actor_name?String(row.actor_name):null}))
   orders=nextOrders;active=orders.filter(order=>order.board_stage!=='archive');production=orders.filter(order=>!order.archive?.finalizedAt);history=nextHistory
-  setConnection({state:'ready',error:'',profile})
+  setConnection({state:'ready',error:'',profile:{...profile,role}})
 }
 export async function refreshOnlineData() {
   if(fetching) { refreshAgain=true; return fetching }
@@ -88,9 +91,11 @@ async function start() {
     const {data:profile,error:profileError}=await db().from('profiles').select('id,full_name,role,is_active').eq('id',user.id).maybeSingle()
     if(profileError) throw profileError
     if(!profile?.is_active) throw new Error('Akun belum diaktifkan sebagai karyawan. Hubungi admin.')
-    setConnection({profile})
+    const role = normalizeRole(profile.role)
+    if (!role) throw new Error('Role akun tidak valid. Hubungi Owner.')
+    setConnection({profile:{...profile,role}})
     const {data:ready,error:setupError}=await db().rpc('printex_online_status')
-    if(setupError||ready?.schema_version!==7) throw new Error('Database belum siap online. Jalankan SETUP_ONLINE.sql di Supabase SQL Editor.')
+    if(setupError||ready?.schema_version!==ACCESS_SCHEMA_VERSION) throw new Error('Hak akses database belum diperbarui. Jalankan migrasi 0013_owner_operator_permissions.sql di Supabase SQL Editor.')
     const requiredTables=['orders','customers','production_steps','process_history','profiles']
     if(requiredTables.some(table=>!ready.realtime_tables?.includes(table))) throw new Error('Realtime belum diaktifkan untuk seluruh tabel.')
     await refreshOnlineData()
@@ -116,6 +121,13 @@ export function useOnlineConnection(){return useSyncExternalStore(subscribe,()=>
 async function mutate(action:string,id:string,data:unknown={}) {
   if(connection.state!=='ready'||connection.busy) throw new Error('Tunggu sinkronisasi selesai sebelum mengubah order.')
   const order=orders.find(item=>item.id===id)
+  if (!canManageOrders(connection.profile?.role)) {
+    const code = data && typeof data === 'object' && 'code' in data ? data.code : null
+    const target = PROCESS_STAGES.find(stage => BOARD_STAGE_META[stage].code === code)
+    if (action !== 'move' || !order || !target || !canMoveBetweenStages(connection.profile?.role, order.board_stage, target)) {
+      throw new Error('Operator hanya dapat memindahkan order di area Menunggu Pembayaran, Sublim, Press, dan Order Selesai.')
+    }
+  }
   setConnection({busy:true,error:''})
   try {
     const {error}=await db().rpc('printex_mutate_order',{p_action:action,p_order_id:id,p_expected_version:order?.version??null,p_data:data})
@@ -134,7 +146,7 @@ export function canMoveOrder(from:BoardStageId,to:BoardStageId,productionType:st
 }
 export async function moveOrderToStage(id:string,stage:BoardStageId){
   const order=orders.find(item=>item.id===id)
-  if(!order||order.board_stage==='archive'||stage==='archive'||!PROCESS_STAGES.includes(stage)||!canMoveOrder(order.board_stage,stage,order.production_type))return false
+  if(!order||order.board_stage==='archive'||stage==='archive'||!PROCESS_STAGES.includes(stage)||!canMoveBetweenStages(connection.profile?.role,order.board_stage,stage)||!canMoveOrder(order.board_stage,stage,order.production_type))return false
   await mutate('move',id,{code:BOARD_STAGE_META[stage].code});return true
 }
 export async function archiveOrder(id:string,deliveryMethod:DeliveryMethod){await mutate('archive',id,{deliveryMethod});return true}

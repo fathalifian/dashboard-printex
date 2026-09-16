@@ -3,10 +3,11 @@
 import { z } from 'zod'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { ACCESS_SCHEMA_VERSION, canManageUsers } from '@/lib/access-control'
 
 const profileSchema = z.object({
   fullName: z.string().trim().min(1).max(100),
-  role: z.enum(['superadmin', 'admin', 'staff']),
+  role: z.enum(['owner', 'admin', 'operator']),
   active: z.boolean(),
 })
 const createSchema = profileSchema.extend({ email: z.string().trim().email().max(254), password: z.string().min(8).max(128) })
@@ -15,7 +16,9 @@ async function authorize() {
   const { data: { user }, error } = await client.auth.getUser()
   if (error || !user) throw new Error('Silakan login kembali.')
   const { data: profile, error: profileError } = await client.from('profiles').select('role,is_active').eq('id', user.id).single()
-  if (profileError || !profile?.is_active || profile.role !== 'superadmin') throw new Error('Hanya Super Admin yang dapat mengelola akun.')
+  if (profileError || !profile?.is_active || !canManageUsers(profile.role)) throw new Error('Hanya Owner yang dapat mengelola akun.')
+  const { data: status, error: statusError } = await client.rpc('printex_online_status')
+  if (statusError || status?.schema_version !== ACCESS_SCHEMA_VERSION) throw new Error('Jalankan migrasi 0013_owner_operator_permissions.sql terlebih dahulu.')
   return { client, user }
 }
 function message(error: unknown) {

@@ -1,9 +1,16 @@
 'use client'
 import { type ReactNode } from 'react'
 import { useOnlineConnection } from '@/lib/production-board'
+import { usePathname } from 'next/navigation'
+import Link from 'next/link'
+import { canAccessPage } from '@/lib/access-control'
 
 export default function OnlineStatus({children}:{children:ReactNode}) {
   const status=useOnlineConnection()
+  const pathname = usePathname()
+  if (status.state === 'ready' && !canAccessPage(status.profile?.role, pathname)) {
+    return <div className="rounded-xl border border-slate-200 bg-white p-5 text-sm text-slate-600"><p>Halaman ini tidak tersedia untuk role Anda.</p><Link href="/dashboard" className="mt-3 inline-block font-medium text-blue-600">Kembali ke Dashboard</Link></div>
+  }
   return <>
     {status.error && <div className="mb-4 rounded-xl border border-red-200 bg-white px-4 py-3 text-sm text-red-600" role="alert">
       <p>{status.error}</p>

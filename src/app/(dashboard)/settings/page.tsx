@@ -1,18 +1,15 @@
 'use client'
 
 import Link from 'next/link'
-import { Users, Shield } from 'lucide-react'
+import { Users } from 'lucide-react'
 
 import { useOnlineConnection } from '@/lib/production-board'
+import { canManageUsers as mayManageUsers } from '@/lib/access-control'
 
 export default function SettingsPage() {
-  const canManageUsers = useOnlineConnection().profile?.role === 'superadmin'
+  const canManageUsers = mayManageUsers(useOnlineConnection().profile?.role)
   return (
     <div className="space-y-5 max-w-3xl">
-      <div>
-        <h2 className="text-xl font-bold text-slate-900">Pengaturan</h2>
-        <p className="text-sm text-slate-400 mt-0.5">Konfigurasi sistem Printex Order Monitoring</p>
-      </div>
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
         <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm ">
@@ -22,19 +19,10 @@ export default function SettingsPage() {
             </div>
             <h3 className="text-sm font-semibold text-slate-900">Manajemen User</h3>
           </div>
-          <p className="text-xs text-slate-500">Tambah akun, ubah role, aktifkan/nonaktifkan, dan hapus akses pengguna melalui website.</p>
-          {canManageUsers ? <Link href="/settings/users" className="mt-3 inline-block text-sm font-semibold text-blue-600">Kelola Pengguna</Link> : <p className="mt-3 text-xs text-slate-500">Hanya Admin Utama yang dapat mengelola pengguna.</p>}
+          <p className="text-xs text-slate-500">Kelola akun dan hak akses.</p>
+          {canManageUsers ? <Link href="/settings/users" className="mt-3 inline-block text-sm font-semibold text-blue-600">Kelola Pengguna</Link> : <p className="mt-3 text-xs text-slate-500">Hanya Owner yang dapat mengelola pengguna.</p>}
         </div>
 
-        <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm ">
-          <div className="flex items-center gap-3 mb-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-amber-50">
-              <Shield className="h-5 w-5 text-amber-600" />
-            </div>
-            <h3 className="text-sm font-semibold text-slate-900">Tahapan Produksi</h3>
-          </div>
-          <p className="text-xs text-slate-500">Tujuh tahap di bawah adalah alur tetap aplikasi. Penambahan tahap memerlukan pembaruan aplikasi dan database.</p>
-        </div>
       </div>
 
       {/* Current Production Steps */}
@@ -52,14 +40,10 @@ export default function SettingsPage() {
           ].map(step => (
             <div key={step.code} className="flex items-center gap-3 rounded-lg border border-slate-100 bg-slate-50 px-4 py-2.5">
               <span className="flex h-6 w-6 items-center justify-center rounded-full bg-slate-200 text-xs font-bold text-slate-600">{step.seq}</span>
-              <code className="text-xs font-mono text-slate-400 w-24">{step.code}</code>
               <span className={`inline-flex items-center rounded-md px-2 py-0.5 text-xs font-medium ${step.color}`}>{step.name}</span>
             </div>
           ))}
         </div>
-        <p className="mt-3 text-xs text-slate-400">
-          💡 Database dirancang fleksibel untuk menambah step seperti RIP, QC, Administrasi di masa depan.
-        </p>
       </div>
     </div>
   )

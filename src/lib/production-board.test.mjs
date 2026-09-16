@@ -6,7 +6,7 @@ import ts from 'typescript'
 
 const codes=['ORDER_IN','DESIGN','DESIGN_DONE','PRINTING','PRESS','DONE','ARCHIVE']
 function backend() {
-  const state={orders:[],customers:[],production_steps:codes.map((code,index)=>({id:String(index),code})),process_history:[],profiles:[{id:'user',full_name:'Admin',role:'superadmin',is_active:true}]}
+  const state={orders:[],customers:[],production_steps:codes.map((code,index)=>({id:String(index),code})),process_history:[],profiles:[{id:'user',full_name:'Admin',role:'owner',is_active:true}]}
   const subscriptions=[]
   const emit=()=>subscriptions.forEach(fn=>fn())
   const client={
@@ -20,7 +20,7 @@ function backend() {
       }}
     },
     async rpc(name,args){
-      if(name==='printex_online_status')return {data:{schema_version:7,realtime_tables:Object.keys(state)}}
+      if(name==='printex_online_status')return {data:{schema_version:8,realtime_tables:Object.keys(state)}}
       const row=state.orders.find(row=>row.id===args.p_order_id)
       if(args.p_action==='create'){
         state.customers.push({id:'customer',name:args.p_data.customerName})
@@ -73,4 +73,40 @@ test('two devices refresh from realtime, never write offline data, reject stage 
   a.events.online()
   await waitFor(()=>a.board.useOnlineConnection().state==='ready')
   assert.equal(a.writes(),0)
+})
+
+test('a live demotion removes create/edit/archive permissions and restricts both move endpoints',async()=>{
+  const api=backend(),a=device(api.client)
+  a.board.useOnlineConnection()
+  await waitFor(()=>a.board.useOnlineConnection().state==='ready')
+  const input={customerName:'Operator Test',productionType:'DTF',meter:1,customerType:'regular',orderDate:'2026-09-07',dueDate:'2026-09-08',notes:''}
+  await a.board.addOrder(input,'restricted')
+  api.state.profiles[0].role='operator';api.emit()
+  await waitFor(()=>a.board.useOnlineConnection().profile.role==='operator')
+  for(const attempt of [
+    ()=>a.board.addOrder(input,'forged'),()=>a.board.updateOrder('restricted',{...input,spkCode:'forged'}),
+    ()=>a.board.deleteOrder('restricted'),()=>a.board.archiveOrder('restricted','pickup'),()=>a.board.finishArchivedOrder('restricted'),
+  ]) await assert.rejects(attempt,/Operator/)
+  assert.equal(await a.board.moveOrderToStage('restricted','design_done'),false)
+  api.state.orders[0].current_step_id='2';api.emit()
+  await waitFor(()=>a.board.useProductionOrders()[0].board_stage==='design_done')
+  assert.equal(await a.board.moveOrderToStage('restricted','design'),false)
+  assert.equal(await a.board.moveOrderToStage('restricted','printing'),true)
+  assert.equal(await a.board.moveOrderToStage('restricted','done'),true) // DTF skip remains available.
+  assert.equal(await a.board.moveOrderToStage('restricted','archive'),false)
+  assert.equal(await a.board.moveOrderToStage('restricted','press'),true)
+  assert.equal(api.state.orders.length,1)
+  assert.equal(a.writes(),0)
+})
+
+test('old database permissions never enable the new UI',async()=>{
+  const api=backend()
+  const rpc=api.client.rpc
+  api.client.rpc=(name,args)=>name==='printex_online_status'?Promise.resolve({data:{schema_version:7,realtime_tables:Object.keys(api.state)}}):rpc(name,args)
+  const a=device(api.client)
+  a.board.useOnlineConnection()
+  await waitFor(()=>a.board.useOnlineConnection().state==='error')
+  assert.match(a.board.useOnlineConnection().error,/0013/)
+  await assert.rejects(()=>a.board.addOrder({},'forged'),/sinkronisasi/)
+  assert.equal(api.state.orders.length,0)
 })

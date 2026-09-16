@@ -52,7 +52,6 @@ export default function OrdersPage() {
     <div className="space-y-5">
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
         <div>
-          <h2 className="text-xl font-bold text-slate-900">Semua Order</h2>
           <p className="text-sm text-slate-400 mt-0.5">{orders.length} order belum diarsipkan · <Link href="/archives" className="text-blue-600">Lihat arsip</Link></p>
         </div>
         <Link
@@ -160,7 +159,7 @@ export default function OrdersPage() {
                     </td>
                     <td className="px-5 py-3.5">
                       <div className="flex items-center justify-end gap-1.5">
-                        <Link href={`/orders/${order.id}`} aria-label={`Lihat detail ${order.spk_code}`} title="Detail" className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-blue-200 bg-blue-50 text-blue-600 transition-colors hover:bg-blue-100">
+                        <Link href={`/orders/${order.id}?from=orders`} aria-label={`Lihat detail ${order.spk_code}`} title="Detail" className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-blue-200 bg-blue-50 text-blue-600 transition-colors hover:bg-blue-100">
                           <Eye className="h-4 w-4" />
                         </Link>
                         <Link href={`/orders/${order.id}/edit`} aria-label={`Edit ${order.spk_code}`} title="Edit" className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-amber-200 bg-amber-50 text-amber-700 transition-colors hover:bg-amber-100">

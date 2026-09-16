@@ -8,7 +8,7 @@ BEGIN
     RAISE EXCEPTION 'Buat akun fathalifian@gmail.com di Authentication > Users terlebih dahulu, lalu jalankan ACTIVATE_ADMIN.sql kembali.';
   END IF;
   INSERT INTO public.profiles(id, full_name, role, is_active)
-  VALUES(admin_id, 'Admin Printex', 'superadmin', true)
-  ON CONFLICT (id) DO UPDATE SET role = 'superadmin', is_active = true, updated_at = now();
+  VALUES(admin_id, 'Admin Printex', 'owner', true)
+  ON CONFLICT (id) DO UPDATE SET role = 'owner', is_active = true, updated_at = now();
 END $$;
 COMMIT;

@@ -41,7 +41,7 @@ export default function EditOrderPage() {
   return (
     <div className="mx-auto max-w-3xl space-y-5">
       <Link href="/schedule" className="inline-flex items-center gap-1.5 text-sm text-slate-500 hover:text-slate-700">Kembali ke Board Produksi</Link>
-      <div><h2 className="text-xl font-bold text-slate-900">Edit Order {order.spk_code}</h2><p className="mt-1 text-sm text-slate-400">Perubahan akan langsung diterapkan ke seluruh halaman.</p></div>
+      <div><h2 className="text-lg font-semibold text-slate-900">{order.spk_code}</h2></div>
 
       <form onSubmit={handleSubmit} className="space-y-5">
         <div className="grid grid-cols-1 gap-4 rounded-xl border border-slate-200 bg-white p-5 shadow-sm sm:grid-cols-2">

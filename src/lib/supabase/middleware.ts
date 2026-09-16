@@ -1,6 +1,7 @@
 import { createServerClient } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
 import { supabaseConfig } from './config'
+import { canAccessPage } from '@/lib/access-control'
 
 export async function updateSession(request: NextRequest) {
   const {url:projectUrl,key}=supabaseConfig()
@@ -37,17 +38,22 @@ export async function updateSession(request: NextRequest) {
     data: { user },
   } = await supabase.auth.getUser()
 
-  if (
-    !user &&
-    !request.nextUrl.pathname.startsWith('/login') &&
-    !request.nextUrl.pathname.startsWith('/auth')
-  ) {
-    // no user, potentially respond by redirecting the user to the login page
+  const pathname = request.nextUrl.pathname
+  const publicPage = pathname === '/login' || pathname === '/auth' || pathname.startsWith('/auth/')
+  function redirectTo(path: string, error?: string) {
     const url = request.nextUrl.clone()
-    url.pathname = '/login'
-    const redirect=NextResponse.redirect(url)
-    supabaseResponse.cookies.getAll().forEach(cookie=>redirect.cookies.set(cookie))
-    return redirect
+    url.pathname = path
+    url.search = error ? `?error=${error}` : ''
+    const response = NextResponse.redirect(url)
+    supabaseResponse.cookies.getAll().forEach(cookie => response.cookies.set(cookie))
+    return response
+  }
+
+  if (!publicPage) {
+    if (!user) return redirectTo('/login')
+    const { data: profile, error } = await supabase.from('profiles').select('role,is_active').eq('id', user.id).single()
+    if (error || !profile?.is_active || !canAccessPage(profile.role, '/dashboard')) return redirectTo('/login', 'access')
+    if (!canAccessPage(profile.role, pathname)) return redirectTo('/dashboard')
   }
 
   return supabaseResponse

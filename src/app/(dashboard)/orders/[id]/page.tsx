@@ -1,6 +1,7 @@
 'use client'
 
-import { useParams, useRouter } from 'next/navigation'
+import { Suspense } from 'react'
+import { useParams, useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import { OrderTimer } from '@/components/production-timers'
 import { AlertTriangle, Phone, CheckCircle2, Circle, Loader2, Pencil, Trash2 } from 'lucide-react'
@@ -15,8 +16,16 @@ const STEP_COLORS: Record<string, string> = {
 }
 
 export default function OrderDetailPage() {
+  return <Suspense fallback={<p className="text-sm text-slate-500">Memuat detail order...</p>}><OrderDetail /></Suspense>
+}
+
+function OrderDetail() {
   const { id } = useParams()
   const router = useRouter()
+  const from = useSearchParams().get('from')
+  const backHref = from && ['dashboard', 'schedule', 'archives', 'orders'].includes(from)
+    ? `/${from}`
+    : '/dashboard'
   const order = useAllOrders().find(o => o.id === id)
   const history = useProcessHistory().filter(event => event.orderId === id)
 
@@ -24,7 +33,7 @@ export default function OrderDetailPage() {
     return (
       <div className="flex flex-col items-center justify-center py-24 text-center">
         <p className="text-slate-500 text-lg font-medium">Order tidak ditemukan</p>
-        <Link href="/orders" className="mt-4 text-blue-600 text-sm hover:underline">Kembali ke Semua Order</Link>
+        <Link href={backHref} className="mt-4 text-blue-600 text-sm hover:underline">Kembali</Link>
       </div>
     )
   }
@@ -33,14 +42,14 @@ export default function OrderDetailPage() {
 
   async function handleDelete() {
     if (!window.confirm(`Hapus order ${order?.spk_code}? Tindakan ini akan menghilangkan order dari seluruh halaman.`)) return
-    try { await deleteOrder(String(id)); router.replace('/schedule') } catch { /* Connection banner displays the error. */ }
+    try { await deleteOrder(String(id)); router.replace(backHref) } catch { /* Connection banner displays the error. */ }
   }
 
   return (
     <div className="space-y-5 max-w-5xl">
       {/* Back + Header */}
       <div className="flex items-center gap-3">
-        <Link href="/orders" className="flex items-center gap-1.5 text-sm text-slate-500 hover:text-slate-700 transition-colors">
+        <Link href={backHref} className="flex items-center gap-1.5 text-sm text-slate-500 hover:text-slate-700 transition-colors">
           Kembali
         </Link>
         <span className="text-slate-300">/</span>
@@ -48,8 +57,8 @@ export default function OrderDetailPage() {
       </div>
 
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-        <div className="flex items-center gap-3">
-          <h2 className="text-xl font-bold text-slate-900">{order.customer.name}</h2>
+        <div className="flex min-w-0 flex-wrap items-center gap-3">
+          <h2 className="break-words text-xl font-semibold text-slate-900">{order.customer.name}</h2>
           <CustomerTypeBadge customerType={order.customer_type} />
           {overdue && (
             <span className="inline-flex items-center gap-1 rounded-md border border-red-200 bg-red-50 px-2.5 py-1 text-xs font-medium text-red-700">
@@ -57,7 +66,7 @@ export default function OrderDetailPage() {
             </span>
           )}
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           {order.board_stage !== 'archive' && <><Link href={`/orders/${order.id}/edit`} className="inline-flex items-center gap-1.5 rounded-xl border border-blue-200 bg-blue-50 px-3 py-2 text-xs font-semibold text-blue-700 hover:bg-blue-100"><Pencil className="h-3.5 w-3.5" /> Edit Order</Link>
           <button type="button" onClick={handleDelete} className="inline-flex items-center gap-1.5 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs font-semibold text-red-700 hover:bg-red-100"><Trash2 className="h-3.5 w-3.5" /> Hapus Order</button></>}
           <StatusBadge stepCode={order.current_step.code} stepName={order.current_step.name} colorToken={STEP_COLORS[order.current_step.code]} />

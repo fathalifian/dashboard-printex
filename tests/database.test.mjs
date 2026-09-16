@@ -16,7 +16,7 @@ for(const file of readdirSync('supabase/migrations').filter(file=>file.endsWith(
 const admin='00000000-0000-4000-8000-000000000001'
 const staff='00000000-0000-4000-8000-000000000002'
 await db.query(`INSERT INTO auth.users(id,email) VALUES($1,'admin@example.test'),($2,'staff@example.test')`,[admin,staff])
-await db.query(`UPDATE public.profiles SET role='superadmin',is_active=true WHERE id=$1`,[admin])
+await db.query(`UPDATE public.profiles SET role='owner',is_active=true WHERE id=$1`,[admin])
 await db.query(`SELECT set_config('request.jwt.claim.sub',$1,false)`,[admin])
 await db.exec('SET ROLE authenticated')
 const input={customerName:'Test Customer',productionType:'DTF',meter:20,customerType:'regular',orderDate:'2026-09-07',dueDate:'2026-09-09',notes:''}
@@ -78,7 +78,7 @@ test('online setup can run twice without changing existing orders or history',as
   await db.exec(activate)
   await db.exec(activate)
   const profile=(await db.query("SELECT role,is_active FROM profiles WHERE id='99999999-0000-4000-8000-000000000001'")).rows[0]
-  assert.deepEqual(profile,{role:'superadmin',is_active:true})
+  assert.deepEqual(profile,{role:'owner',is_active:true})
 })
 
 test('manual reset replaces old and archived orders with twenty new tracked incoming orders',async()=>{
@@ -121,17 +121,17 @@ test('user management restricts access, protects self, and disables deleted acco
   await db.exec('RESET ROLE; SET ROLE authenticated')
   const manage=(id,name,role,active,remove=false)=>db.query('SELECT public.printex_manage_user($1,$2,$3,$4,$5)',[id,name,role,active,remove])
   await db.query(`SELECT set_config('request.jwt.claim.sub',$1,false)`,[admin])
-  await manage(staff,'Staf Baru','staff',true)
-  await assert.rejects(()=>manage(admin,'Admin','staff',true),/akun sendiri/)
+  await manage(staff,'Staf Baru','operator',true)
+  await assert.rejects(()=>manage(admin,'Admin','operator',true),/akun sendiri/)
   await assert.rejects(()=>manage(admin,null,null,false,true),/akun sendiri/)
-  await assert.rejects(()=>manage(staff,'Staf','owner',true),/tidak valid/)
+  await assert.rejects(()=>manage(staff,'Staf','invalid-role',true),/tidak valid/)
   await db.query(`SELECT set_config('request.jwt.claim.sub',$1,false)`,[staff])
-  await assert.rejects(()=>db.query('SELECT * FROM public.printex_list_users()'),/Super Admin/)
-  await assert.rejects(()=>manage(staff,'Staf','superadmin',true),/Super Admin/)
+  await assert.rejects(()=>db.query('SELECT * FROM public.printex_list_users()'),/Owner/)
+  await assert.rejects(()=>manage(staff,'Staf','owner',true),/Owner/)
   await db.query(`SELECT set_config('request.jwt.claim.sub',$1,false)`,[admin])
   const count=(await db.query('SELECT count(*)::int AS n FROM process_history')).rows[0].n
   await manage(staff,null,null,false,true)
-  await assert.rejects(()=>manage(staff,'Staf','staff',true),/Penghapusan/)
+  await assert.rejects(()=>manage(staff,'Staf','operator',true),/Penghapusan/)
   assert.equal((await db.query('SELECT count(*)::int AS n FROM process_history')).rows[0].n,count)
   await db.query(`SELECT set_config('request.jwt.claim.sub',$1,false)`,[staff])
   assert.equal((await db.query('SELECT * FROM orders')).rows.length,0)
@@ -143,7 +143,7 @@ test('hard deletion removes Auth and profile while preserving finalized orders a
   const owner='dddddddd-0000-4000-8000-000000000001'
   const key='eeeeeeee-0000-4000-8000-000000000001'
   await db.query("INSERT INTO auth.users(id,email) VALUES($1,'removed@example.test')",[owner])
-  await db.query("UPDATE profiles SET is_active=true WHERE id=$1",[owner])
+  await db.query("UPDATE profiles SET role='admin',is_active=true WHERE id=$1",[owner])
   await db.query(`SELECT set_config('request.jwt.claim.sub',$1,false)`,[owner])
   await db.exec('SET ROLE authenticated')
   await mutate('create',input,null,key)
@@ -159,6 +159,81 @@ test('hard deletion removes Auth and profile while preserving finalized orders a
   assert.equal(after.created_by,null)
   assert.equal(String(after.archive_finalized_at),String(before.archive_finalized_at))
   assert.equal((await db.query('SELECT count(*)::int AS n FROM process_history WHERE order_id=$1',[key])).rows[0].n,historyBefore)
+})
+
+test('operator permissions are enforced by RPC and RLS across every board stage',async()=>{
+  await db.exec('RESET ROLE')
+  const operator='bbbbbbbb-0000-4000-8000-000000000001'
+  await db.query("INSERT INTO auth.users(id,email,raw_user_meta_data) VALUES($1,'operator@example.test','{\"role\":\"owner\"}')",[operator])
+  assert.deepEqual((await db.query('SELECT role,is_active FROM profiles WHERE id=$1',[operator])).rows[0],{role:'operator',is_active:false})
+  await db.query('UPDATE profiles SET is_active=true WHERE id=$1',[operator])
+  await db.query(`SELECT set_config('request.jwt.claim.sub',$1,false)`,[admin])
+  await db.exec('SET ROLE authenticated')
+  const codes=['ORDER_IN','DESIGN','DESIGN_DONE','PRINTING','PRESS','DONE','ARCHIVE']
+  const rows=[]
+  for(let i=0;i<codes.length;i++) {
+    const key=`cccccccc-0000-4000-8000-${String(i+1).padStart(12,'0')}`
+    await mutate('create',input,null,key)
+    for(let step=1;step<=Math.min(i,5);step++) await mutate('move',{code:codes[step]},step,key)
+    if(i===6) await mutate('archive',{deliveryMethod:'pickup'},6,key)
+    rows.push((await db.query('SELECT * FROM orders WHERE id=$1',[key])).rows[0])
+  }
+  await db.query(`SELECT set_config('request.jwt.claim.sub',$1,false)`,[operator])
+  assert.equal((await db.query('SELECT * FROM orders WHERE id=ANY($1::uuid[])',[rows.map(row=>row.id)])).rows.length,7)
+  assert.equal((await db.query('SELECT * FROM profiles')).rows.length,1)
+  for(const action of ['create','edit','delete','archive','finish']) {
+    await assert.rejects(()=>mutate(action,{...input,spkCode:'FORGED',role:'owner'},rows[0].version,rows[0].id),error=>error.code==='42501')
+  }
+  await assert.rejects(()=>db.query('SELECT * FROM public.printex_list_users()'),error=>error.code==='42501')
+  await assert.rejects(()=>db.query("SELECT public.printex_manage_user($1,'Forged','owner',true,false)",[operator]),error=>error.code==='42501')
+  for(const statement of ["UPDATE orders SET notes='forged'", "INSERT INTO customers(name) VALUES('forged')", "UPDATE profiles SET role='owner'", 'DELETE FROM process_history']) {
+    await assert.rejects(()=>db.query(statement),error=>error.code==='42501')
+  }
+  // Roll back each attempt to test both endpoints from the same original position.
+  await db.exec('BEGIN')
+  for(let from=0;from<codes.length;from++) for(let to=0;to<codes.length;to++) {
+    if(from===to)continue
+    await db.exec('SAVEPOINT attempt')
+    const request=()=>mutate('move',{code:codes[to]},rows[from].version,rows[from].id)
+    const inScope=from>=2&&from<=5&&to>=2&&to<=5
+    const legal=Math.abs(from-to)===1||(from===3&&to===5) // DTF retains its existing Press skip.
+    if(inScope&&legal) {
+      await request()
+      const changed=(await db.query('SELECT current_step_id,version,notes FROM orders WHERE id=$1',[rows[from].id])).rows[0]
+      assert.equal(changed.current_step_id,rows[to].current_step_id)
+      assert.equal(changed.version,rows[from].version+1)
+      assert.equal(changed.notes,rows[from].notes)
+    } else if(!inScope) await assert.rejects(request,error=>error.code==='42501',`${codes[from]} -> ${codes[to]}`)
+    else await assert.rejects(request,/previous or next/)
+    await db.exec('ROLLBACK TO SAVEPOINT attempt; RELEASE SAVEPOINT attempt')
+  }
+  await db.exec('COMMIT')
+  await assert.rejects(()=>mutate('move',{code:'PRINTING'},999,rows[2].id),/perangkat lain/)
+  // A role change is effective on the next request, with no new login required.
+  await db.exec('RESET ROLE')
+  await db.query('UPDATE profiles SET is_active=false WHERE id=$1',[operator])
+  await db.exec('SET ROLE authenticated')
+  assert.equal((await db.query('SELECT * FROM orders')).rows.length,0)
+  await assert.rejects(()=>mutate('move',{code:'PRINTING'},rows[2].version,rows[2].id),error=>error.code==='42501')
+  await db.exec('RESET ROLE')
+})
+
+test('role migration converts existing users in place and is safe to rerun',async()=>{
+  await db.exec('RESET ROLE')
+  const beforeOrders=(await db.query('SELECT * FROM orders ORDER BY id')).rows
+  const beforeHistory=(await db.query('SELECT * FROM process_history ORDER BY id')).rows
+  await db.exec('ALTER TABLE profiles DROP CONSTRAINT profiles_role_check')
+  await db.query("UPDATE profiles SET role='superadmin' WHERE id=$1",[admin])
+  await db.query("UPDATE profiles SET role='staff' WHERE id=$1",[staff])
+  const beforeProfiles=(await db.query('SELECT * FROM profiles ORDER BY id')).rows
+  const migration=readFileSync('supabase/migrations/0013_owner_operator_permissions.sql','utf8')
+  await db.exec(migration)
+  await db.exec(migration)
+  const afterProfiles=(await db.query('SELECT * FROM profiles ORDER BY id')).rows
+  assert.deepEqual(afterProfiles,beforeProfiles.map(profile=>({...profile,role:profile.role==='superadmin'?'owner':profile.role==='staff'?'operator':profile.role})))
+  assert.deepEqual((await db.query('SELECT * FROM orders ORDER BY id')).rows,beforeOrders)
+  assert.deepEqual((await db.query('SELECT * FROM process_history ORDER BY id')).rows,beforeHistory)
+  await assert.rejects(()=>db.query("UPDATE profiles SET role='superadmin' WHERE id=$1",[admin]),/profiles_role_check/)
 })
 
 after(async()=>{await db.close()})

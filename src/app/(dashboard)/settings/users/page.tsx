@@ -3,11 +3,12 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react'
 import Link from 'next/link'
 import { useOnlineConnection } from '@/lib/production-board'
+import { canManageUsers, ROLE_LABELS, normalizeRole } from '@/lib/access-control'
 import { addManagedUser, deleteManagedUser, listManagedUsers, updateManagedUser } from './actions'
 
 type Account = { id: string; email: string; full_name: string; role: string; is_active: boolean }
-const empty = { fullName: '', email: '', password: '', role: 'staff', active: true }
-const roles: Record<string,string> = { superadmin: 'Admin Utama', admin: 'Admin', staff: 'Staf' }
+const empty = { fullName: '', email: '', password: '', role: 'operator', active: true }
+const roles: Record<string,string> = ROLE_LABELS
 export default function UsersPage() {
   const connection = useOnlineConnection()
   const [users,setUsers] = useState<Account[]>([])
@@ -18,7 +19,7 @@ export default function UsersPage() {
   const [editing,setEditing] = useState<string|null>(null)
   const [form,setForm] = useState(empty)
   const [removing,setRemoving] = useState<Account|null>(null)
-  const allowed = connection.profile?.role === 'superadmin'
+  const allowed = canManageUsers(connection.profile?.role)
   const refresh = useCallback(async()=>{
     try {
       const result=await listManagedUsers()
@@ -65,8 +66,7 @@ export default function UsersPage() {
   const input='mt-1 block w-full rounded-xl border border-slate-200 bg-white p-3 text-sm text-slate-900'
   return <div className="max-w-5xl space-y-5">
     <Link href="/settings" className="text-sm text-blue-600">Pengaturan</Link>
-    <div><h2 className="text-xl font-bold text-slate-900">Manajemen User</h2><p className="mt-1 text-sm text-slate-500">Kelola akun dan akses pengguna website.</p></div>
-    {!allowed?<p className="text-slate-500">Hanya Admin Utama yang dapat mengelola akun.</p>:<>
+    {!allowed?<p className="text-slate-500">Hanya Owner yang dapat mengelola akun.</p>:<>
       {message&&<p role="status" className="rounded-xl border border-slate-200 bg-white p-4 text-sm text-slate-700">{message}</p>}
       <form onSubmit={submit} className="rounded-xl border border-slate-200 bg-white p-5">
         <h3 className="mb-4 font-semibold text-slate-900">{editing?'Edit Pengguna':'Tambah Pengguna'}</h3>
@@ -78,11 +78,11 @@ export default function UsersPage() {
           <label className="flex items-center gap-2 text-sm text-slate-700"><input type="checkbox" disabled={editing===currentId} checked={form.active} onChange={e=>setForm({...form,active:e.target.checked})}/>Akun aktif</label>
           <div className="flex items-center gap-3"><button type="submit" className="rounded-xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50">{busy?'Menyimpan...':editing?'Simpan Perubahan':'Tambah Akun'}</button>{editing&&<button type="button" onClick={()=>{setEditing(null);setForm(empty)}} className="text-sm text-slate-600">Batal</button>}</div>
         </fieldset>
-        <p className="mt-4 text-xs text-slate-500">Admin Utama mengelola akun dan seluruh operasional. Admin dan Staf mengelola order serta melihat laporan; keduanya tidak dapat mengelola akun.</p>
+        <p className="mt-4 text-xs text-slate-500">Owner mengelola akun dan seluruh operasional. Admin mengelola order dan laporan. Operator melihat Dashboard dan Board Produksi, serta memindahkan order di area Menunggu Pembayaran, Sublim, Press, dan Order Selesai.</p>
       </form>
       <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white">
         <table className="w-full text-left text-sm"><thead className="bg-slate-50 text-slate-500"><tr>{['Pengguna','Role','Status','Aksi'].map(label=><th key={label} className="p-4">{label}</th>)}</tr></thead><tbody>
-          {users.map(user=><tr key={user.id} className="border-t border-slate-100 text-slate-700"><td className="p-4"><p className="font-semibold">{user.full_name}{user.id===currentId?' (Anda)':''}</p><p className="text-xs text-slate-500">{user.email}</p></td><td className="p-4">{roles[user.role]||user.role}</td><td className="p-4">{user.is_active?'Aktif':'Nonaktif'}</td><td className="p-4"><div className="flex gap-4"><button disabled={busy} onClick={()=>{setEditing(user.id);setForm({fullName:user.full_name,email:user.email,password:'',role:user.role,active:user.is_active});setMessage('')}} className="text-blue-600">Edit</button><button disabled={busy||user.id===currentId} onClick={()=>setRemoving(user)} className="text-red-600 disabled:opacity-30">Hapus</button></div></td></tr>)}
+          {users.map(user=><tr key={user.id} className="border-t border-slate-100 text-slate-700"><td className="p-4"><p className="font-semibold">{user.full_name}{user.id===currentId?' (Anda)':''}</p><p className="text-xs text-slate-500">{user.email}</p></td><td className="p-4">{roles[user.role]||user.role}</td><td className="p-4">{user.is_active?'Aktif':'Nonaktif'}</td><td className="p-4"><div className="flex gap-4"><button disabled={busy} onClick={()=>{setEditing(user.id);setForm({fullName:user.full_name,email:user.email,password:'',role:normalizeRole(user.role) ?? 'operator',active:user.is_active});setMessage('')}} className="text-blue-600">Edit</button><button disabled={busy||user.id===currentId} onClick={()=>setRemoving(user)} className="text-red-600 disabled:opacity-30">Hapus</button></div></td></tr>)}
           {!users.length&&<tr><td colSpan={4} className="p-8 text-center text-slate-500">{loading?'Memuat akun...':'Tidak ada akun yang dapat ditampilkan.'}</td></tr>}
         </tbody></table>
       </div>

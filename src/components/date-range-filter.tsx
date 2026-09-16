@@ -41,10 +41,10 @@ export default function DateRangeFilter({value,onChange}:{value:DateRange;onChan
   const offset=(date.getUTCDay()+6)%7
   const count=new Date(Date.UTC(date.getUTCFullYear(),date.getUTCMonth()+1,0)).getUTCDate()
   const [highlightStart,highlightEnd]=first?[first,hover??first].sort():[value.start,value.end]
-  return <div ref={wrapper} className="relative flex flex-wrap items-end gap-3" onKeyDown={event=>{if(event.key==='Escape'){setOpen(false);setFirst(null);trigger.current?.focus()}}}>
+  return <div ref={wrapper} className="relative flex max-w-full flex-wrap items-end gap-3" onKeyDown={event=>{if(event.key==='Escape'){setOpen(false);setFirst(null);trigger.current?.focus()}}}>
     <label className="flex flex-col gap-2 text-xs font-semibold text-slate-500">Periode<select value={open?'custom':value.period} onChange={e=>preset(e.target.value as DateRange['period'])} className="rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-700"><option value="today">Hari ini</option><option value="custom">Rentang tanggal</option></select></label>
     <button ref={trigger} type="button" onClick={()=>open?setOpen(false):show()} aria-expanded={open} aria-label="Pilih rentang tanggal" className="flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-700"><CalendarDays className="h-4 w-4 shrink-0"/>{label(value.start)}{value.start!==value.end?` – ${label(value.end)}`:''}</button>
-    {open&&<div aria-label="Kalender rentang tanggal" className="absolute left-0 top-full z-30 mt-2 w-[min(320px,calc(100vw-48px))] rounded-2xl border border-slate-200 bg-white p-4 shadow-xl">
+    {open&&<div aria-label="Kalender rentang tanggal" className="date-filter-popover absolute right-0 top-full z-30 mt-2 w-[min(320px,calc(100vw-48px))] rounded-2xl border border-slate-200 bg-white p-4 shadow-xl">
       <div className="mb-3 flex items-center justify-between gap-1">
         <div className="flex shrink-0">
           <button type="button" aria-label="Tahun sebelumnya" title="Tahun sebelumnya" onClick={()=>changeMonth(-12)} className="h-8 w-7 rounded-md text-sm font-semibold text-blue-600 hover:bg-slate-100">{'<<'}</button>

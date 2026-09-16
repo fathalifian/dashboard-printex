@@ -2,7 +2,7 @@
 
 1. Database baru: jalankan migrasi 0001 sampai 0006 berurutan di Supabase SQL Editor. Jika tabel sudah ada, jangan ulangi migrasi awal.
 2. Jalankan `SETUP_ONLINE.sql` (setup online dan penghapusan endpoint impor lokal, aman dijalankan ulang).
-3. Buat akun admin di Authentication > Users, lalu jalankan `ACTIVATE_ADMIN.sql`.
+3. Buat akun Owner di Authentication > Users, lalu jalankan `ACTIVATE_ADMIN.sql`.
 4. Isi `NEXT_PUBLIC_SUPABASE_URL` dan `NEXT_PUBLIC_SUPABASE_ANON_KEY` atau `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` di `.env.local` dan Environment Variables Vercel. File env tidak masuk Git.
 5. Login ke web. Uji perubahan order pada dua browser yang login.
 
@@ -36,13 +36,31 @@ Order Masuk boleh langsung ke Menunggu Pembayaran jika desain sudah tersedia. Kh
 
 1. Jalankan migrations/0011_user_management.sql melalui SQL Editor sekali untuk database yang sudah ada.
 2. Tambahkan SUPABASE_SECRET_KEY (atau SUPABASE_SERVICE_ROLE_KEY) ke .env.local dan Environment Variables Vercel. Gunakan secret key dari pengaturan API Keys Supabase; jangan memakai awalan NEXT_PUBLIC_ dan jangan memasukkan key ke Git. Restart server development atau redeploy setelah mengisi konfigurasi.
-3. Login sebagai Super Admin, buka Pengaturan ? Kelola Pengguna. Tambah akun dengan nama, email, password awal minimal 8 karakter, role, dan status aktif. Akun aktif dapat langsung login tanpa email konfirmasi.
+3. Login sebagai Owner, buka Pengaturan ? Kelola Pengguna. Tambah akun dengan nama, email, password awal minimal 8 karakter, role, dan status aktif. Akun aktif dapat langsung login tanpa email konfirmasi.
 4. Edit untuk mengganti nama/role/status. Hapus mencabut akses lebih dahulu, lalu menghapus akun login dan profil secara permanen. Riwayat order dipertahankan. Bila penghapusan login gagal, akun tetap nonaktif dan tombol Hapus bisa dicoba kembali.
 
-Role yang didukung adalah superadmin, admin, staff. Hanya superadmin mengelola akun. Admin dan staff memiliki akses operasional order yang sama; pembatasan operator per tahap belum diterapkan. Daftar akun dimuat ulang setelah aksi, saat fokus browser kembali, dan setiap 30 detik. Perubahan profil juga masuk kanal realtime operasional.
+Role yang didukung adalah owner, admin, operator. Hanya Owner mengelola akun. Admin mengelola order dan laporan. Operator hanya membuka Dashboard dan Board Produksi; seluruh kolom board tetap terlihat. Daftar akun dimuat ulang setelah aksi, saat fokus browser kembali, dan setiap 30 detik. Perubahan profil juga masuk kanal realtime operasional.
 
 Referensi Auth Admin: https://supabase.com/docs/reference/javascript/auth-admin-createuser dan https://supabase.com/docs/reference/javascript/auth-admin-deleteuser
 
 ## Penghapusan permanen pengguna
 
 Jalankan migrations/0012_hard_delete_users.sql pada database yang sudah ada. Migrasi mengatur referensi pengguna menjadi NULL ketika profil dihapus, termasuk pada order arsip, tanpa menghapus order atau laporan. Akun lama yang sebelumnya dihapus sebagian ditampilkan kembali untuk dicoba hapus sampai selesai.
+
+## Owner, Admin, dan Operator (migrasi 0013)
+
+Untuk database yang sudah menjalankan migrasi 0012, jalankan `migrations/0013_owner_operator_permissions.sql` melalui Supabase SQL Editor sebelum memakai versi aplikasi ini. Database baru atau versi lama dapat mengikuti setup lengkap di atas; `SETUP_ONLINE.sql` sudah menyertakan migrasi 0013.
+
+Migrasi mengubah `superadmin` menjadi `owner` dan `staff` menjadi `operator`. `admin` tetap sama. ID akun, status aktif, order, dan riwayat tidak dihapus. Aman dijalankan ulang. Aplikasi menunggu schema_version 8 sebelum mengaktifkan operasi.
+
+| Hak akses | Owner | Admin | Operator |
+|---|---|---|---|
+| Dashboard dan seluruh kolom board | Ya | Ya | Ya |
+| Laporan, arsip, detail order, pengaturan | Ya | Ya | Tidak |
+| Tambah, edit, hapus, arsip order | Ya | Ya | Tidak |
+| Kelola akun dan role | Ya | Tidak | Tidak |
+| Pindahkan order | Alur yang berlaku | Alur yang berlaku | Hanya antara Menunggu Pembayaran, Sublim, Press, Order Selesai |
+
+Untuk Operator, tahap asal **dan** tujuan harus berada di empat tahap tersebut. Aturan satu tahap maju/mundur tetap berlaku; DTF boleh melewati Press dari Sublim ke Order Selesai. Operator tidak dapat menarik order dari Order Masuk/Desain atau memindahkan ke kolom penerimaan customer. RPC membaca role aktif dari database dan mengunci profil serta order selama transaksi. Permintaan langsung tidak dapat melewati pembatasan ini.
+
+Verifikasi setelah migrasi: masuk sebagai Operator; pastikan menu hanya Dashboard/Board, tombol tambah/edit/hapus/arsip tidak ada, seluruh tujuh kolom terlihat, perpindahan dalam area yang diizinkan berhasil, dan URL `/orders/new` atau `/reports` kembali ke Dashboard. Login Owner untuk mengelola akun.

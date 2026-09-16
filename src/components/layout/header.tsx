@@ -2,9 +2,10 @@
 
 import { LogOut, ChevronDown, Moon, Sun } from 'lucide-react'
 import { useOnlineConnection } from '@/lib/production-board'
+import { roleLabel } from '@/lib/access-control'
 import { createClient } from '@/lib/supabase/client'
 import { usePathname } from 'next/navigation'
-import { useState, useSyncExternalStore } from 'react'
+import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
 
 const pageTitles: Record<string, string> = {
   '/dashboard': 'Dashboard',
@@ -56,6 +57,20 @@ export default function Header() {
   const {profile}=useOnlineConnection()
   const pathname = usePathname()
   const [showMenu, setShowMenu] = useState(false)
+  const accountMenu = useRef<HTMLDivElement>(null)
+  const accountTrigger = useRef<HTMLButtonElement>(null)
+  useEffect(() => {
+    if (!showMenu) return
+    const outside = (event: PointerEvent) => {
+      if (!accountMenu.current?.contains(event.target as Node)) setShowMenu(false)
+    }
+    const escape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') { setShowMenu(false); accountTrigger.current?.focus() }
+    }
+    document.addEventListener('pointerdown', outside)
+    document.addEventListener('keydown', escape)
+    return () => { document.removeEventListener('pointerdown', outside); document.removeEventListener('keydown', escape) }
+  }, [showMenu])
 
   const title = pathname.endsWith('/edit')
     ? 'Edit Order'
@@ -64,19 +79,23 @@ export default function Header() {
     : pageTitles[pathname] ?? 'Printex Monitoring'
 
   return (
-    <header className="sticky top-0 z-10 flex h-16 w-full items-center justify-between border-b border-slate-200 bg-white px-6">
+    <header className="workspace-header sticky top-0 z-10 flex h-16 shrink-0 w-full items-center justify-between gap-3 border-b border-slate-200 bg-white px-6">
       <div>
-        <h1 className="text-lg font-bold text-slate-900">{title}</h1>
-        <p className="text-xs text-slate-400">Printex Order Monitoring System</p>
+        <h1 className="text-lg font-semibold text-slate-900">{title}</h1>
       </div>
 
       <div className="flex items-center gap-3">
         <ThemeToggle />
 
-        <div className="relative">
+        <div ref={accountMenu} className="relative">
           <button
             // Ignore extension-added attributes on this control only.
             suppressHydrationWarning
+            ref={accountTrigger}
+            type="button"
+            aria-label="Menu akun"
+            aria-expanded={showMenu}
+            aria-controls="account-menu"
             onClick={() => setShowMenu(!showMenu)}
             className="flex items-center gap-2.5 rounded-xl border border-slate-200 px-3 py-1.5 hover:bg-slate-50 transition-colors"
           >
@@ -85,13 +104,13 @@ export default function Header() {
             </div>
             <div className="hidden sm:block text-left">
               <p className="text-xs font-semibold text-slate-900 leading-none">{profile?.full_name ?? 'Akun'}</p>
-              <p className="text-xs text-slate-400 leading-none mt-0.5">{profile?.role ?? 'Memuat profil'}</p>
+              <p className="text-xs text-slate-400 leading-none mt-0.5">{roleLabel(profile?.role)}</p>
             </div>
             <ChevronDown className="h-4 w-4 text-slate-400" />
           </button>
 
           {showMenu && (
-            <div className="absolute right-0 mt-2 w-48 rounded-xl border border-slate-200 bg-white py-1 shadow-lg">
+            <div id="account-menu" className="absolute right-0 mt-2 w-48 rounded-xl border border-slate-200 bg-white py-1 shadow-lg">
               <button onClick={async()=>{await createClient().auth.signOut();window.location.assign('/login')}} className="flex w-full items-center gap-2 px-4 py-2 text-sm text-red-600 hover:bg-red-50">
                 <LogOut className="h-4 w-4" />
                 Keluar

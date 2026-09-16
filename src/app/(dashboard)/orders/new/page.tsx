@@ -47,10 +47,6 @@ export default function NewOrderPage() {
         </Link>
       </div>
 
-      <div>
-        <h2 className="text-xl font-bold text-slate-900">Tambah Order Baru</h2>
-        <p className="text-sm text-slate-400 mt-0.5">Isi data order customer</p>
-      </div>
 
       <form onSubmit={handleSubmit} className="space-y-5">
         {/* Customer Section */}
@@ -114,7 +110,7 @@ export default function NewOrderPage() {
             </div>
             <div>
               <label className="block text-sm font-medium text-slate-700 mb-1.5">Tipe Customer</label>
-              <div className="flex gap-3 pt-1">
+              <div className="flex flex-wrap gap-3 pt-1">
                 {[{ value: 'regular', label: 'Customer Biasa' }, { value: 'priority', label: 'Customer Prioritas' }].map(type => (
                   <label key={type.value} className="flex items-center gap-2 cursor-pointer">
                     <input
