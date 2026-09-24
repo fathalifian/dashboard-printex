@@ -1,14 +1,27 @@
 import { login } from './actions'
+import Image from 'next/image'
 
 
 export default async function LoginPage({searchParams}:{searchParams:Promise<{error?:string}>}) {
   const {error}=await searchParams
   return (
     <main className="login-shell">
-      <section className="login-intro" aria-label="Printex Workspace">
-        <span className="brand-wordmark">printex<span>.</span></span>
-        <div className="space-y-5"><h2>Produksi terpantau.<br />Kerja lebih terarah.</h2><p>Satu ruang kerja untuk mengelola order, memantau proses produksi, dan melihat laporan tim Anda.</p></div>
-        <p className="login-intro-footer">Printex Workspace / Manajemen produksi</p>
+        <div className="login-brand-banner">
+          <Image src="/batiklogin.jpeg" alt="" fill sizes="100vw" loading="eager" className="login-brand-background" />
+          <div className="login-brand flex items-center gap-4">
+          <Image src="/printex-brand.jpeg" alt="Logo Printex" width={88} height={88} sizes="(max-width: 767px) 64px, 88px" loading="eager" className="workspace-brand-logo" />
+          <span className="workspace-brand-copy">
+            <span className="workspace-brand-name">PRINTEX</span>
+            <span className="workspace-brand-subtitle">MONITORING SYSTEM</span>
+          </span>
+          </div>
+        </div>
+        <section className="login-intro" aria-label="Printex Monitoring System">
+        <div className="login-welcome space-y-5">
+          <h2>Selamat Datang di <span>Printex Monitoring System</span></h2>
+          <p><em>Pantau proses produksi secara real-time, kelola status pekerjaan, dan pastikan setiap pesanan berjalan sesuai alur.</em></p>
+          <p className="login-intro-footer">Printex Monitoring System</p>
+        </div>
       </section>
       <section className="login-form-panel"><div className="space-y-7">
         <div>
