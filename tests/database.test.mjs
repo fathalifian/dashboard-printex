@@ -236,4 +236,43 @@ test('role migration converts existing users in place and is safe to rerun',asyn
   await assert.rejects(()=>db.query("UPDATE profiles SET role='superadmin' WHERE id=$1",[admin]),/profiles_role_check/)
 })
 
+test('customer service contact is shared, admin-managed and protected by RLS', async () => {
+  await db.exec('RESET ROLE')
+  const csOwner = '77777777-0000-4000-8000-000000000001'
+  const csAdmin = '77777777-0000-4000-8000-000000000002'
+  const csOperator = '77777777-0000-4000-8000-000000000003'
+  for (const [uid, role] of [[csOwner, 'owner'], [csAdmin, 'admin'], [csOperator, 'operator']]) {
+    await db.query('INSERT INTO auth.users(id,email) VALUES($1,$2)', [uid, role+'-cs@example.test'])
+    await db.query('UPDATE profiles SET role=$2,is_active=true WHERE id=$1', [uid, role])
+  }
+  await db.exec('SET ROLE authenticated')
+  const setUser = uid => db.query("SELECT set_config('request.jwt.claim.sub',$1,false)", [uid])
+  const read = () => db.query('SELECT whatsapp_number FROM customer_service_settings')
+  const update = number => db.query('UPDATE customer_service_settings SET whatsapp_number=$1 WHERE singleton=true RETURNING whatsapp_number', [number])
+  await setUser(csAdmin)
+  assert.equal((await update('6281234567890')).rows[0].whatsapp_number, '6281234567890')
+  await assert.rejects(() => update('javascript:alert(1)'), /check constraint/)
+  await assert.rejects(() => db.query('INSERT INTO customer_service_settings DEFAULT VALUES'), /permission denied/)
+  await setUser(csOperator)
+  assert.equal((await read()).rows[0].whatsapp_number, '6281234567890')
+  assert.equal((await update('6289999999999')).rows.length, 0)
+  await assert.rejects(() => db.query('DELETE FROM customer_service_settings'), /permission denied/)
+  await setUser(csOwner)
+  assert.equal((await read()).rows[0].whatsapp_number, '6281234567890')
+  assert.equal((await update('')).rows[0].whatsapp_number, '')
+  await update('6289876543210')
+  await db.exec('RESET ROLE')
+  const migration = readFileSync('supabase/migrations/0014_customer_service.sql', 'utf8')
+  await db.exec(migration); await db.exec(migration)
+  assert.equal((await read()).rows[0].whatsapp_number, '6289876543210')
+  await db.query('UPDATE profiles SET is_active=false WHERE id=$1', [csAdmin])
+  await db.exec('SET ROLE authenticated')
+  await setUser(csAdmin)
+  assert.equal((await read()).rows.length, 0)
+  assert.equal((await update('6281111111111')).rows.length, 0)
+  await db.exec('RESET ROLE; SET ROLE anon')
+  await assert.rejects(read, /permission denied/)
+  await db.exec('RESET ROLE')
+})
+
 after(async()=>{await db.close()})

@@ -1,54 +1,24 @@
-.shell { --workspace-muted: #657487; }
+.shell { --workspace-muted: #647080; }
 .main { scrollbar-gutter: stable; }
 .main:focus { outline: none; }
-.shell :global(.rounded-xl) { border-radius: 10px; }
-.shell :global(.rounded-2xl) { border-radius: 12px; }
-.main :global(.shadow-sm) { box-shadow: 0 1px 2px rgb(15 23 42 / 3%); }
+.shell :global(.rounded-xl), .shell :global(.rounded-2xl) { border-radius: 8px; }
+.main :global(.shadow-sm), .main :global(.shadow-md) { box-shadow: none; }
 .shell :global(.text-slate-400) { color: var(--workspace-muted); }
-.shell :is(h1, h2, h3) { letter-spacing: -.015em; }
-.shell :is(button, a, input, select, textarea, summary):focus-visible {
-  outline: 2px solid #2563eb;
-  outline-offset: 3px;
-}
+.shell :is(h1, h2, h3) { letter-spacing: -.025em; }
 .shell :is(button, select, summary) { cursor: pointer; }
 .shell button:disabled { cursor: not-allowed; }
-.main :is(input:not([type="range"]):not([type="radio"]):not([type="checkbox"]), select, textarea) { border-radius: 8px; }
+.main :is(input:not([type="range"]):not([type="radio"]):not([type="checkbox"]), select, textarea) { border-radius: 6px; }
 .main table { font-variant-numeric: tabular-nums; }
 .main thead th { font-size: 11px; font-weight: 600; letter-spacing: .035em; }
 .main tbody td { line-height: 1.5; }
 .main tbody tr { transition: background-color 120ms ease; }
-.main tbody tr:hover { background-color: #f8fafc; }
-.shell :global(.workspace-sidebar) { transition: width 160ms ease; }
-.shell :global(.workspace-nav-link) { min-height: 42px; border-radius: 8px; font-size: 13px; }
-.shell :global(.workspace-nav-link[aria-current="page"]) { box-shadow: inset 3px 0 #2563eb; font-weight: 600; }
-.main :global(.board-column) { border-radius: 10px; }
-.main :global(.board-card) { border-width: 1px; border-left-width: 3px; border-radius: 8px; box-shadow: 0 1px 3px rgb(15 23 42 / 6%); }
-.main :global(.board-card .board-edit-button) { box-shadow: none; border-color: #94a3b8; }
-.main :global(.board-card .board-edit-button:hover) { transform: none; }
-.main :global(.board-card .board-due-overdue) { font-weight: 600; box-shadow: none; }
-:global(:root:not(.dark)) .main :global(.board-column .board-card) { box-shadow: 0 1px 3px rgb(15 23 42 / 6%); border-left-width: 3px; }
-.skipLink { position: fixed; top: -80px; left: 16px; z-index: 100; background: white; color: #1d4ed8; border-radius: 8px; padding: 12px 16px; }
+.main tbody tr:hover { background-color: #f5f7f9; }
+.skipLink { position: fixed; top: -80px; left: 16px; z-index: 100; background: white; color: #9f1b22; border-radius: 6px; padding: 12px 16px; }
 .skipLink:focus { top: 12px; }
-:global(.dark) .shell { --workspace-muted: #b3c1d3; }
-:global(.dark) .shell :is(:global(.ring-offset-2), :global(.ring-offset-4)) { --tw-ring-offset-color: var(--dark-panel); }
-:global(.dark) .shell :global(.bg-teal-100) { background-color: #193e35; }
-:global(.dark) .shell :global(.text-teal-600) { color: #8be0bb; }
-:global(.dark) .main tbody tr:hover { background-color: #223147; }
-:global(.dark) .shell :is(button, a, input, select, textarea, summary):focus-visible { outline-color: #93c5fd; }
+:global(.dark) .shell { --workspace-muted: #a8b2bf; }
+:global(.dark) .main tbody tr:hover { background-color: #242c38; }
 @media (max-width: 767px) {
-  .shell { padding-bottom: calc(66px + env(safe-area-inset-bottom, 0px)); }
-  .shell :global(.workspace-sidebar) { position: fixed; bottom: 0; left: 0; z-index: 30; height: auto; width: 100%; border-right: 0; border-top: 1px solid #e2e8f0; padding-bottom: env(safe-area-inset-bottom, 0px); }
-  .shell :global(.workspace-sidebar) > :not(nav) { display: none; }
-  .shell :global(.workspace-sidebar) nav { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 2px; padding: 5px; overflow: visible; }
-  .shell :global(.workspace-nav-link) { flex-direction: column; justify-content: center; gap: 5px; min-height: 55px; margin: 0; padding: 6px 2px; font-size: 9px; text-align: center; white-space: nowrap; }
-  .shell :global(.workspace-nav-link[aria-current="page"]) { box-shadow: none; }
-  .shell :global(.workspace-nav-label) { display: block; }
-  .shell :global(.workspace-header) { padding-inline: 16px; }
-  .shell :global(.workspace-header h1) { font-size: 16px; }
+  .shell { flex-direction: column; }
   .main { scrollbar-gutter: auto; }
-  .main :global(.date-filter-popover) { position: fixed; inset: auto 16px calc(80px + env(safe-area-inset-bottom, 0px)); width: auto; max-width: 360px; margin-inline: auto; }
-  :global(.dark) .shell :global(.workspace-sidebar) { border-top-color: #42536b; }
-}
-@media (prefers-reduced-motion: reduce) {
-  .shell *, .shell *::before, .shell *::after { transition-duration: .01ms !important; animation-duration: .01ms !important; }
+  .main :global(.date-filter-popover) { position: fixed; inset: auto 16px 24px; width: auto; max-width: 360px; margin-inline: auto; }
 }

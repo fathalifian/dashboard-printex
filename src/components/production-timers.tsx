@@ -1,6 +1,6 @@
 'use client'
 
-import { useSyncExternalStore } from 'react'
+import { useMemo, useSyncExternalStore } from 'react'
 import { BOARD_STAGE_META, useAllOrders, useProcessHistory } from '@/lib/production-board'
 import { jakartaDate, type ProcessStage } from '@/lib/process-metrics'
 import { formatDuration, orderTiming, TIMED_STAGES } from '@/lib/process-timing'
@@ -17,9 +17,10 @@ function useClock(){return useSyncExternalStore(subscribe,()=>now,()=>0)}
 
 export function OrderTimer({id,detail=false,hideTotal=false}:{id:string;detail?:boolean;hideTotal?:boolean}) {
   const orders=useAllOrders(), history=useProcessHistory(), clock=useClock()
-  const order=orders.find(row=>row.id===id)
+  const order=useMemo(()=>orders.find(row=>row.id===id),[orders,id])
+  const orderEvents=useMemo(()=>history.filter(event=>event.orderId===id),[history,id])
   if(!order||!clock)return null
-  const timing=orderTiming(order,history,clock)
+  const timing=orderTiming(order,orderEvents,clock)
   const current=timing.stages[order.board_stage]
   if(!detail && order.board_stage==='incoming')return <p className="mt-3 text-xs text-slate-500">Waktu produksi belum dimulai</p>
   if(!detail)return <dl className="board-timer mt-3 rounded-xl border px-3 py-2.5 tabular-nums">
@@ -34,7 +35,7 @@ export function OrderTimer({id,detail=false,hideTotal=false}:{id:string;detail?:
   </dl>
   return <section className="rounded-xl border border-slate-200 bg-white p-5">
     <h3 className="font-semibold text-slate-900">Waktu Proses Order</h3>
-    <p className="mt-2 text-lg font-bold text-blue-600 tabular-nums">Total: {formatDuration(timing.totalMilliseconds)}</p>
+    <p className="mt-2 text-lg font-bold text-brand-600 tabular-nums">Total: {formatDuration(timing.totalMilliseconds)}</p>
     <p className="mt-1 text-xs text-slate-500">{timing.finished?'Berhenti saat pertama masuk Order Selesai.':timing.startedAt?'Berjalan sejak masuk Desain atau Menunggu Pembayaran hingga Order Selesai.':'Belum ada catatan masuk Desain atau Menunggu Pembayaran.'} Durasi kalender, termasuk malam dan hari libur. Kunjungan ulang ke tahap yang sama dijumlahkan.</p>
     <div className="mt-4 divide-y divide-slate-100">{TIMED_STAGES.map(stage=>{
       const row=timing.stages[stage]
@@ -56,11 +57,11 @@ export function ProcessTimingReport({stage,start,end}:{stage:ProcessStage;start:
   return <section className="rounded-xl border border-slate-200 bg-white p-5">
     <h3 className="font-semibold text-slate-900">Durasi Proses</h3>
     <div className={totalStage?'mt-4':'mt-4 grid gap-4 sm:grid-cols-2'}>
-      {!totalStage&&<div><p className="text-sm text-slate-500">Rata-rata {BOARD_STAGE_META[stage].name}</p><p className="mt-1 text-xl font-bold text-blue-600">{average===null?'Belum ada sampel':formatDuration(average)}</p><p className="text-xs text-slate-500">{stageRows.length} order</p></div>}
-      <div><p className="text-sm text-slate-500">Rata-rata total waktu produksi</p><p className="mt-1 text-xl font-bold text-blue-600">{totalAverage===null?'Belum ada sampel':formatDuration(totalAverage)}</p><p className="text-xs text-slate-500">{totals.length} order masuk Order Selesai pada periode ini</p></div>
+      {!totalStage&&<div><p className="text-sm text-slate-500">Rata-rata {BOARD_STAGE_META[stage].name}</p><p className="mt-1 text-xl font-bold text-brand-600">{average===null?'Belum ada sampel':formatDuration(average)}</p><p className="text-xs text-slate-500">{stageRows.length} order</p></div>}
+      <div><p className="text-sm text-slate-500">Rata-rata total waktu produksi</p><p className="mt-1 text-xl font-bold text-brand-600">{totalAverage===null?'Belum ada sampel':formatDuration(totalAverage)}</p><p className="text-xs text-slate-500">{totals.length} order masuk Order Selesai pada periode ini</p></div>
     </div>
     {!!stageRows.length&&<details key={stage+start+end} className="group mt-4 border-t border-slate-100 pt-3">
-      <summary className="list-none cursor-pointer text-sm font-semibold text-blue-600 [&::-webkit-details-marker]:hidden"><span className="group-open:hidden">Buka rincian order ({stageRows.length})</span><span className="hidden group-open:inline">Tutup rincian order</span></summary>
+      <summary className="list-none cursor-pointer text-sm font-semibold text-brand-600 [&::-webkit-details-marker]:hidden"><span className="group-open:hidden">Buka rincian order ({stageRows.length})</span><span className="hidden group-open:inline">Tutup rincian order</span></summary>
       <div className="mt-3 max-h-80 overflow-auto"><table className="w-full text-left text-sm"><thead><tr className="text-slate-500"><th className="py-2">SPK</th>{!totalStage&&<th>Durasi tahap</th>}<th>Total produksi</th></tr></thead><tbody>{stageRows.map(({order,timing})=><tr key={order.id} className="border-t border-slate-100 text-slate-700"><td className="py-2">{order.spk_code}</td>{!totalStage&&<td>{formatDuration(timing.stages[stage].milliseconds)}</td>}<td>{formatDuration(timing.totalMilliseconds)}{!timing.finished?' (berjalan)':''}</td></tr>)}</tbody></table></div>
     </details>}
   </section>

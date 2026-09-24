@@ -33,7 +33,7 @@ function OrderDetail() {
     return (
       <div className="flex flex-col items-center justify-center py-24 text-center">
         <p className="text-slate-500 text-lg font-medium">Order tidak ditemukan</p>
-        <Link href={backHref} className="mt-4 text-blue-600 text-sm hover:underline">Kembali</Link>
+        <Link href={backHref} className="mt-4 text-brand-600 text-sm hover:underline">Kembali</Link>
       </div>
     )
   }
@@ -67,7 +67,7 @@ function OrderDetail() {
           )}
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          {order.board_stage !== 'archive' && <><Link href={`/orders/${order.id}/edit`} className="inline-flex items-center gap-1.5 rounded-xl border border-blue-200 bg-blue-50 px-3 py-2 text-xs font-semibold text-blue-700 hover:bg-blue-100"><Pencil className="h-3.5 w-3.5" /> Edit Order</Link>
+          {order.board_stage !== 'archive' && <><Link href={`/orders/${order.id}/edit`} className="inline-flex items-center gap-1.5 rounded-xl border border-brand-200 bg-brand-50 px-3 py-2 text-xs font-semibold text-brand-700 hover:bg-brand-100"><Pencil className="h-3.5 w-3.5" /> Edit Order</Link>
           <button type="button" onClick={handleDelete} className="inline-flex items-center gap-1.5 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs font-semibold text-red-700 hover:bg-red-100"><Trash2 className="h-3.5 w-3.5" /> Hapus Order</button></>}
           <StatusBadge stepCode={order.current_step.code} stepName={order.current_step.name} colorToken={STEP_COLORS[order.current_step.code]} />
         </div>
@@ -134,7 +134,7 @@ function OrderDetail() {
                       <div className={cn(
                         'flex h-8 w-8 items-center justify-center rounded-full border-2 flex-shrink-0 z-10',
                         state === 'completed' ? 'border-emerald-500 bg-emerald-500 text-white' :
-                        state === 'active' ? 'border-blue-500 bg-blue-50 text-blue-600' :
+                        state === 'active' ? 'border-brand-500 bg-brand-50 text-brand-600' :
                         'border-slate-200 bg-white text-slate-300'
                       )}>
                         {state === 'completed' ? <CheckCircle2 className="h-4 w-4" /> :
@@ -148,7 +148,7 @@ function OrderDetail() {
                     <div className="pb-6 min-w-0">
                       <p className={cn('text-sm font-semibold',
                         state === 'completed' ? 'text-emerald-700' :
-                        state === 'active' ? 'text-blue-700' :
+                        state === 'active' ? 'text-brand-700' :
                         'text-slate-400'
                       )}>
                         {step.name}

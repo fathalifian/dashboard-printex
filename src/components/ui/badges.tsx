@@ -1,4 +1,4 @@
-import { cn, getStepColorClass } from '@/lib/utils'
+import { cn } from '@/lib/utils'
 
 interface StatusBadgeProps {
   stepCode: string
@@ -9,7 +9,7 @@ interface StatusBadgeProps {
 }
 
 export function StatusBadge(props: StatusBadgeProps) {
-  const { stepName, colorToken, isOverdue, size = 'md' } = props
+  const { stepName, isOverdue, size = 'md' } = props
   if (isOverdue) {
     return (
       <span className={cn(
@@ -27,7 +27,7 @@ export function StatusBadge(props: StatusBadgeProps) {
     <span className={cn(
       'inline-flex items-center rounded-md border font-medium',
       size === 'sm' ? 'px-2 py-0.5 text-xs' : 'px-2.5 py-1 text-xs',
-      getStepColorClass(colorToken)
+      'bg-slate-50 text-slate-700 border-slate-200'
     )}>
       {stepName}
     </span>
@@ -43,7 +43,7 @@ export function CustomerTypeBadge({ customerType, size = 'md' }: CustomerTypeBad
   if (customerType === 'priority') {
     return (
       <span className={cn(
-        'inline-flex items-center gap-1 rounded-md border font-medium bg-blue-50 text-blue-700 border-blue-200',
+        'inline-flex items-center gap-1 rounded-md border font-medium bg-brand-50 text-brand-700 border-brand-200',
         size === 'sm' ? 'px-2 py-0.5 text-xs' : 'px-2.5 py-1 text-xs',
       )}>
         Customer Prioritas

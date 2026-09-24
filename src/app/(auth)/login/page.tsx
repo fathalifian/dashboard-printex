@@ -1,16 +1,20 @@
 import { login } from './actions'
-import Image from 'next/image'
+
 
 export default async function LoginPage({searchParams}:{searchParams:Promise<{error?:string}>}) {
   const {error}=await searchParams
   return (
-    <main className="flex min-h-dvh items-center justify-center bg-[var(--background)] px-4 py-8 sm:px-6 lg:px-8">
-      <div className="w-full max-w-sm space-y-7 rounded-xl bg-white p-6 sm:p-8 border border-slate-200">
+    <main className="login-shell">
+      <section className="login-intro" aria-label="Printex Workspace">
+        <span className="brand-wordmark">printex<span>.</span></span>
+        <div className="space-y-5"><h2>Produksi terpantau.<br />Kerja lebih terarah.</h2><p>Satu ruang kerja untuk mengelola order, memantau proses produksi, dan melihat laporan tim Anda.</p></div>
+        <p className="login-intro-footer">Printex Workspace / Manajemen produksi</p>
+      </section>
+      <section className="login-form-panel"><div className="space-y-7">
         <div>
-          <Image src="/printex-logo.png" alt="Printex" width={40} height={40} priority className="mx-auto mb-5 rounded-lg" />
-          <h1 className="text-center text-2xl font-semibold tracking-tight text-slate-900">Masuk ke Printex</h1>
-          <p className="mt-2 text-center text-sm text-slate-600">
-            Order Monitoring System
+          <h1 className="text-2xl font-semibold tracking-tight text-slate-900">Masuk ke Printex</h1>
+          <p className="mt-2 text-sm text-slate-600">
+            Masukkan akun Anda untuk membuka workspace.
           </p>
         </div>
         {error && <p role="alert" className="text-sm text-red-600">{error === 'access' ? 'Akun belum aktif atau akses tidak tersedia. Hubungi Owner.' : 'Login gagal. Periksa email, password, dan koneksi lalu coba lagi.'}</p>}
@@ -26,7 +30,7 @@ export default async function LoginPage({searchParams}:{searchParams:Promise<{er
                 type="email"
                 autoComplete="email"
                 required
-                className="relative block w-full rounded-xl border-0 py-2.5 px-3 text-slate-900 ring-1 ring-inset ring-slate-300 placeholder:text-slate-400 focus:z-10 focus:ring-2 focus:ring-inset focus:ring-blue-600 sm:text-sm sm:leading-6"
+                className="relative block w-full rounded-xl border border-slate-300 py-2.5 px-3 text-slate-900 placeholder:text-slate-400 sm:text-sm sm:leading-6"
                 placeholder="nama@perusahaan.com"
               />
             </div>
@@ -40,7 +44,7 @@ export default async function LoginPage({searchParams}:{searchParams:Promise<{er
                 type="password"
                 autoComplete="current-password"
                 required
-                className="relative block w-full rounded-xl border-0 py-2.5 px-3 text-slate-900 ring-1 ring-inset ring-slate-300 placeholder:text-slate-400 focus:z-10 focus:ring-2 focus:ring-inset focus:ring-blue-600 sm:text-sm sm:leading-6"
+                className="relative block w-full rounded-xl border border-slate-300 py-2.5 px-3 text-slate-900 placeholder:text-slate-400 sm:text-sm sm:leading-6"
                 placeholder="Masukkan kata sandi"
               />
             </div>
@@ -49,14 +53,14 @@ export default async function LoginPage({searchParams}:{searchParams:Promise<{er
           <div>
             <button
               type="submit"
-              className="group relative flex w-full justify-center rounded-xl bg-blue-600 px-3 py-2.5 text-sm font-semibold text-white hover:bg-blue-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600 transition-colors"
+              className="group relative flex w-full justify-center rounded-xl bg-brand-600 px-3 py-2.5 text-sm font-semibold text-white hover:bg-brand-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-600 transition-colors"
             >
               Masuk
             </button>
           </div>
         </form>
         <p className="border-t border-slate-100 pt-5 text-center text-xs leading-5 text-slate-500">Hubungi admin jika Anda membutuhkan akses akun.</p>
-      </div>
+      </div></section>
     </main>
   )
 }

@@ -65,7 +65,7 @@ export default function NewOrderPage() {
                 onChange={handleChange}
                 required
                 placeholder="Contoh: Nanang Sport"
-                className="block w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm text-slate-900 placeholder:text-slate-400 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                className="block w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm text-slate-900 placeholder:text-slate-400 focus:border-brand-500 focus:outline-none focus:ring-1 focus:ring-brand-500"
               />
             </div>
           </div>
@@ -85,7 +85,7 @@ export default function NewOrderPage() {
                 value={form.productionType}
                 onChange={handleChange}
                 required
-                className="block w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm text-slate-900 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                className="block w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm text-slate-900 focus:border-brand-500 focus:outline-none focus:ring-1 focus:ring-brand-500"
               >
                 <option value="">Pilih jenis...</option>
                 {PRODUCTION_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
@@ -105,7 +105,7 @@ export default function NewOrderPage() {
                 min="0"
                 step="0.01"
                 placeholder="0"
-                className="block w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm text-slate-900 placeholder:text-slate-400 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                className="block w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm text-slate-900 placeholder:text-slate-400 focus:border-brand-500 focus:outline-none focus:ring-1 focus:ring-brand-500"
               />
             </div>
             <div>
@@ -119,7 +119,7 @@ export default function NewOrderPage() {
                       value={type.value}
                       checked={form.customerType === type.value}
                       onChange={handleChange}
-                      className="text-blue-600"
+                      className="text-brand-600"
                     />
                     <span className="text-sm text-slate-700">{type.label}</span>
                   </label>
@@ -144,7 +144,7 @@ export default function NewOrderPage() {
                 value={form.orderDate}
                 onChange={handleChange}
                 required
-                className="block w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm text-slate-900 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                className="block w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm text-slate-900 focus:border-brand-500 focus:outline-none focus:ring-1 focus:ring-brand-500"
               />
             </div>
             <div>
@@ -158,7 +158,7 @@ export default function NewOrderPage() {
                 value={form.dueDate}
                 onChange={handleChange}
                 required
-                className="block w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm text-slate-900 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                className="block w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm text-slate-900 focus:border-brand-500 focus:outline-none focus:ring-1 focus:ring-brand-500"
               />
             </div>
           </div>
@@ -171,7 +171,7 @@ export default function NewOrderPage() {
               onChange={handleChange}
               rows={3}
               placeholder="Catatan khusus produksi..."
-              className="block w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm text-slate-900 placeholder:text-slate-400 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 resize-none"
+              className="block w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm text-slate-900 placeholder:text-slate-400 focus:border-brand-500 focus:outline-none focus:ring-1 focus:ring-brand-500 resize-none"
             />
           </div>
         </div>
@@ -186,7 +186,7 @@ export default function NewOrderPage() {
           </Link>
           <button
             type="submit"
-            className="rounded-xl bg-blue-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-blue-700 transition-colors"
+            className="rounded-xl bg-brand-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-brand-700 transition-colors"
           >
             Simpan Order
           </button>

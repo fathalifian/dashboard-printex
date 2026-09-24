@@ -11,7 +11,9 @@ const inter = localFont({
 
 export const metadata: Metadata = {
   title: "Printex Order Monitoring System",
-  description: "Internal dashboard for Printex order and production management.",
+  description: "Manajemen order dan produksi Printex.",
+  robots: { index: false, follow: false },
+  icons: { icon: "/icon.svg" },
 };
 
 export default function RootLayout({
@@ -20,9 +22,9 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="id" suppressHydrationWarning className={`${inter.variable} h-full antialiased`}>
+    <html lang="id" data-theme="light" suppressHydrationWarning className={`${inter.variable} h-full antialiased`}>
       <head>
-        <script dangerouslySetInnerHTML={{ __html: `(function(){try{var d=window.matchMedia('(prefers-color-scheme: dark)').matches;document.documentElement.classList.toggle('dark',d);document.documentElement.dataset.theme=d?'dark':'light'}catch(e){}})()` }} />
+        <script dangerouslySetInnerHTML={{ __html: `(function(){var theme='light';try{if(localStorage.getItem('printex-theme')==='dark')theme='dark'}catch(e){}document.documentElement.classList.toggle('dark',theme==='dark');document.documentElement.dataset.theme=theme})()` }} />
       </head>
       <body className="min-h-full flex flex-col">{children}</body>
     </html>

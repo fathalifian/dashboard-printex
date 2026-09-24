@@ -64,3 +64,10 @@ Migrasi mengubah `superadmin` menjadi `owner` dan `staff` menjadi `operator`. `a
 Untuk Operator, tahap asal **dan** tujuan harus berada di empat tahap tersebut. Aturan satu tahap maju/mundur tetap berlaku; DTF boleh melewati Press dari Sublim ke Order Selesai. Operator tidak dapat menarik order dari Order Masuk/Desain atau memindahkan ke kolom penerimaan customer. RPC membaca role aktif dari database dan mengunci profil serta order selama transaksi. Permintaan langsung tidak dapat melewati pembatasan ini.
 
 Verifikasi setelah migrasi: masuk sebagai Operator; pastikan menu hanya Dashboard/Board, tombol tambah/edit/hapus/arsip tidak ada, seluruh tujuh kolom terlihat, perpindahan dalam area yang diizinkan berhasil, dan URL `/orders/new` atau `/reports` kembali ke Dashboard. Login Owner untuk mengelola akun.
+
+
+## WhatsApp Customer Service (migrasi 0014)
+
+Database yang sudah ada: jalankan `migrations/0014_customer_service.sql` melalui Supabase SQL Editor setelah migrasi 0013. Setup baru sudah menyertakannya di `SETUP_ONLINE.sql`. Migrasi ini tidak mengubah order atau nomor yang sudah tersimpan.
+
+Login sebagai Admin atau Owner, buka **Pengaturan > WhatsApp Customer Service**, isi nomor (08 atau +62), lalu simpan. Nomor tersimpan untuk semua pengguna; sidebar diperbarui langsung pada perangkat penyimpan, ketika tab lain kembali aktif, atau dalam 60 detik pada tab aktif. Kosongkan nomor untuk menonaktifkan tautan. Operator hanya dapat membaca kontak; RLS database dan server action menolak perubahannya.

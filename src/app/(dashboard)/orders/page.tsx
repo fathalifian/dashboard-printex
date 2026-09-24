@@ -14,7 +14,7 @@ const STEP_COLORS: Record<string, string> = {
 const FILTERS = [
   { label: 'Semua', value: 'all' },
   { label: 'Order Masuk', value: 'ORDER_IN' },
-  { label: 'Design', value: 'DESIGN' },
+  { label: 'Desain', value: 'DESIGN' },
   { label: 'Menunggu Pembayaran', value: 'DESIGN_DONE' },
   { label: 'Proses Sublim', value: 'PRINTING' },
   { label: 'Proses Press', value: 'PRESS' },
@@ -52,11 +52,11 @@ export default function OrdersPage() {
     <div className="space-y-5">
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
         <div>
-          <p className="text-sm text-slate-400 mt-0.5">{orders.length} order belum diarsipkan · <Link href="/archives" className="text-blue-600">Lihat arsip</Link></p>
+          <p className="text-sm text-slate-400 mt-0.5">{orders.length} order belum diarsipkan · <Link href="/archives" className="text-brand-600">Lihat arsip</Link></p>
         </div>
         <Link
           href="/orders/new"
-          className="inline-flex items-center gap-2 rounded-xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 transition-colors"
+          className="inline-flex items-center gap-2 rounded-xl bg-brand-600 px-4 py-2 text-sm font-semibold text-white hover:bg-brand-700 transition-colors"
         >
           <PlusCircle className="h-4 w-4" />
           Tambah Order
@@ -73,7 +73,7 @@ export default function OrdersPage() {
           value={search}
           onChange={e => setSearch(e.target.value)}
           placeholder="Cari SPK / Nama Customer..."
-          className="block w-full rounded-xl border border-slate-200 bg-white py-2.5 pl-11 pr-4 text-sm text-slate-900 placeholder:text-slate-400 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+          className="block w-full rounded-xl border border-slate-200 bg-white py-2.5 pl-11 pr-4 text-sm text-slate-900 placeholder:text-slate-400 focus:border-brand-500 focus:outline-none focus:ring-1 focus:ring-brand-500"
         />
       </div>
 
@@ -85,7 +85,7 @@ export default function OrdersPage() {
             onClick={() => setActiveFilter(filter.value)}
             className={`whitespace-nowrap rounded-lg px-3.5 py-1.5 text-sm font-medium transition-colors ${
               activeFilter === filter.value
-                ? 'bg-blue-600 text-white shadow-sm'
+                ? 'bg-brand-600 text-white shadow-sm'
                 : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-50'
             }`}
           >
@@ -125,14 +125,14 @@ export default function OrdersPage() {
                 return (
                   <tr
                     key={order.id}
-                    className={`hover:bg-slate-50 transition-colors cursor-pointer ${overdue && order.order_state !== 'completed' ? 'bg-red-50/20' : ''}`}
+                    className={`hover:bg-slate-50 transition-colors ${overdue && order.order_state !== 'completed' ? 'bg-red-50/20' : ''}`}
                   >
                     <td className="px-5 py-3.5">
                       <div className="flex items-center gap-2">
                         {overdue && order.order_state !== 'completed' && (
                           <AlertTriangle className="h-3.5 w-3.5 text-red-500 flex-shrink-0" />
                         )}
-                        <code className="font-mono text-sm font-semibold text-slate-900">{order.spk_code}</code>
+                        <Link href={`/orders/${order.id}?from=orders`} className="font-mono text-sm font-semibold text-brand-600 hover:underline">{order.spk_code}</Link>
                       </div>
                     </td>
                     <td className="px-5 py-3.5">
@@ -159,10 +159,10 @@ export default function OrdersPage() {
                     </td>
                     <td className="px-5 py-3.5">
                       <div className="flex items-center justify-end gap-1.5">
-                        <Link href={`/orders/${order.id}?from=orders`} aria-label={`Lihat detail ${order.spk_code}`} title="Detail" className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-blue-200 bg-blue-50 text-blue-600 transition-colors hover:bg-blue-100">
+                        <Link href={`/orders/${order.id}?from=orders`} aria-label={`Lihat detail ${order.spk_code}`} title="Detail" className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-brand-200 bg-brand-50 text-brand-600 transition-colors hover:bg-brand-100">
                           <Eye className="h-4 w-4" />
                         </Link>
-                        <Link href={`/orders/${order.id}/edit`} aria-label={`Edit ${order.spk_code}`} title="Edit" className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-amber-200 bg-amber-50 text-amber-700 transition-colors hover:bg-amber-100">
+                        <Link href={`/orders/${order.id}/edit`} aria-label={`Edit ${order.spk_code}`} title="Edit" className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-600 transition-colors hover:bg-slate-100">
                           <Pencil className="h-4 w-4" />
                         </Link>
                         <button type="button" onClick={() => setPendingDeleteId(order.id)} aria-label={`Hapus ${order.spk_code}`} title="Hapus" className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-red-200 bg-red-50 text-red-600 transition-colors hover:bg-red-100">

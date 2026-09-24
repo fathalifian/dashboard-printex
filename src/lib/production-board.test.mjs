@@ -44,7 +44,7 @@ function device(client) {
     const file=new URL(name.replace('@/lib/','')+'.ts',import.meta.url)
     const source=ts.transpileModule(readFileSync(file,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2020}}).outputText
     const exports={};cache[name]=exports
-    runInNewContext(source,{exports,require:load,crypto,Intl,Date,document:{visibilityState:'visible'},window:{addEventListener(name,callback){events[name]=callback},setInterval(){},localStorage:{getItem(){storageWrites++;throw new Error('Local storage is forbidden')},setItem(){storageWrites++;throw new Error('Local storage is forbidden')}}}})
+    runInNewContext(source,{exports,require:load,crypto,Intl,Date,setTimeout,clearTimeout,document:{visibilityState:'visible'},window:{addEventListener(name,callback){events[name]=callback},setInterval(){},localStorage:{getItem(){storageWrites++;throw new Error('Local storage is forbidden')},setItem(){storageWrites++;throw new Error('Local storage is forbidden')}}}})
     return exports
   }
   return {board:load('@/lib/production-board'),writes:()=>storageWrites,events}
@@ -110,3 +110,19 @@ test('old database permissions never enable the new UI',async()=>{
   await assert.rejects(()=>a.board.addOrder({},'forged'),/sinkronisasi/)
   assert.equal(api.state.orders.length,0)
 })
+
+
+test('a burst of realtime notifications shares one snapshot refresh', async () => {
+  const api = backend(); let snapshots = 0;
+  const from = api.client.from;
+  api.client.from = table => { if (table === 'orders') snapshots++; return from(table); };
+  const a = device(api.client);
+  a.board.useOnlineConnection();
+  await waitFor(() => a.board.useOnlineConnection().realtime);
+  await a.board.refreshOnlineData();
+  snapshots = 0;
+  for (let i = 0; i < 20; i++) api.emit();
+  await waitFor(() => snapshots > 0);
+  await new Promise(resolve => setTimeout(resolve, 350));
+  assert.equal(snapshots, 1);
+});

@@ -1,6 +1,6 @@
 'use client'
 
-import { LogOut, ChevronDown, Moon, Sun } from 'lucide-react'
+import { LogOut, ChevronDown, Moon, Sun, PanelLeftClose, PanelLeftOpen } from 'lucide-react'
 import { useOnlineConnection } from '@/lib/production-board'
 import { roleLabel } from '@/lib/access-control'
 import { createClient } from '@/lib/supabase/client'
@@ -8,7 +8,7 @@ import { usePathname } from 'next/navigation'
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
 
 const pageTitles: Record<string, string> = {
-  '/dashboard': 'Dashboard',
+  '/dashboard': 'Workspace',
   '/orders': 'Semua Order',
   '/orders/new': 'Tambah Order',
   '/schedule': 'Board Produksi',
@@ -35,6 +35,7 @@ function ThemeToggle() {
     const nextTheme = isDark ? 'light' : 'dark'
     document.documentElement.classList.toggle('dark', nextTheme === 'dark')
     document.documentElement.dataset.theme = nextTheme
+    try { localStorage.setItem('printex-theme', nextTheme) } catch { /* Theme still works when storage is unavailable. */ }
     window.dispatchEvent(new Event('theme-change'))
   }
 
@@ -53,7 +54,7 @@ function ThemeToggle() {
   )
 }
 
-export default function Header() {
+export default function Header({ sidebarCollapsed, onToggleSidebar }: { sidebarCollapsed: boolean; onToggleSidebar: () => void }) {
   const {profile}=useOnlineConnection()
   const pathname = usePathname()
   const [showMenu, setShowMenu] = useState(false)
@@ -80,7 +81,10 @@ export default function Header() {
 
   return (
     <header className="workspace-header sticky top-0 z-10 flex h-16 shrink-0 w-full items-center justify-between gap-3 border-b border-slate-200 bg-white px-6">
-      <div>
+      <div className="flex items-center gap-3">
+        <button type="button" className="workspace-sidebar-toggle" onClick={onToggleSidebar} aria-expanded={!sidebarCollapsed} aria-controls="workspace-navigation" aria-label={sidebarCollapsed ? 'Perluas sidebar' : 'Perkecil sidebar'} title={sidebarCollapsed ? 'Perluas sidebar' : 'Perkecil sidebar'}>
+          {sidebarCollapsed ? <PanelLeftOpen size={18} /> : <PanelLeftClose size={18} />}
+        </button>
         <h1 className="text-lg font-semibold text-slate-900">{title}</h1>
       </div>
 
@@ -99,7 +103,7 @@ export default function Header() {
             onClick={() => setShowMenu(!showMenu)}
             className="flex items-center gap-2.5 rounded-xl border border-slate-200 px-3 py-1.5 hover:bg-slate-50 transition-colors"
           >
-            <div className="flex h-7 w-7 items-center justify-center rounded-full bg-blue-100 text-blue-700 text-xs font-bold">
+            <div className="flex h-7 w-7 items-center justify-center rounded-full bg-slate-100 text-slate-700 text-xs font-bold">
               {profile?.full_name.slice(0,2).toUpperCase() ?? '…'}
             </div>
             <div className="hidden sm:block text-left">
@@ -111,6 +115,8 @@ export default function Header() {
 
           {showMenu && (
             <div id="account-menu" className="absolute right-0 mt-2 w-48 rounded-xl border border-slate-200 bg-white py-1 shadow-lg">
+              {/* A full navigation clears the in-memory production store on sign-out. */}
+              {/* eslint-disable-next-line @next/next/no-location-assign-relative-destination */}
               <button onClick={async()=>{await createClient().auth.signOut();window.location.assign('/login')}} className="flex w-full items-center gap-2 px-4 py-2 text-sm text-red-600 hover:bg-red-50">
                 <LogOut className="h-4 w-4" />
                 Keluar

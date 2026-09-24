@@ -34,6 +34,7 @@ let started = false
 let client: ReturnType<typeof createClient> | undefined
 let fetching: Promise<void> | undefined
 let refreshAgain = false
+let refreshTimer: ReturnType<typeof setTimeout> | undefined
 const listeners = new Set<() => void>()
 function emit() { listeners.forEach(listener => listener()) }
 function setConnection(update: Partial<Connection>) { connection = {...connection,...update}; emit() }
@@ -80,9 +81,20 @@ async function fetchSnapshot() {
   setConnection({state:'ready',error:'',profile:{...profile,role}})
 }
 export async function refreshOnlineData() {
+  // An explicit refresh also covers notifications still waiting in the batch.
+  if (refreshTimer !== undefined) { clearTimeout(refreshTimer); refreshTimer = undefined }
   if(fetching) { refreshAgain=true; return fetching }
   fetching=(async()=>{do {refreshAgain=false;await fetchSnapshot()}while(refreshAgain)})()
   try {await fetching} catch(error) {setConnection({state:'error',error:errorMessage(error)});throw error} finally {fetching=undefined}
+}
+function scheduleRefresh() {
+  // One transaction can update orders, customers and several history rows.
+  // Collect these notifications instead of fetching a full snapshot per row.
+  if (refreshTimer !== undefined) return
+  refreshTimer = setTimeout(() => {
+    refreshTimer = undefined
+    void refreshOnlineData().catch(() => {})
+  }, 300)
 }
 async function start() {
   try {
@@ -100,7 +112,7 @@ async function start() {
     if(requiredTables.some(table=>!ready.realtime_tables?.includes(table))) throw new Error('Realtime belum diaktifkan untuk seluruh tabel.')
     await refreshOnlineData()
     const channel=db().channel(`printex-board-${crypto.randomUUID()}`)
-    for(const table of requiredTables) channel.on('postgres_changes',{event:'*',schema:'public',table},()=>{void refreshOnlineData().catch(()=>{})})
+    for(const table of requiredTables) channel.on('postgres_changes',{event:'*',schema:'public',table},scheduleRefresh)
     channel.subscribe(status=>{
       setConnection({realtime:status==='SUBSCRIBED'})
       if(status==='SUBSCRIBED') void refreshOnlineData().catch(()=>{})

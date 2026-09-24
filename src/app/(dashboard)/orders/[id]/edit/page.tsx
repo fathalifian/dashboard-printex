@@ -36,7 +36,7 @@ export default function EditOrderPage() {
     window.location.replace(new URL('/schedule', window.location.origin).toString())
   }
 
-  const inputClass = 'mt-1.5 block w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500'
+  const inputClass = 'mt-1.5 block w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900 focus:border-brand-500 focus:outline-none focus:ring-1 focus:ring-brand-500'
 
   return (
     <div className="mx-auto max-w-3xl space-y-5">
@@ -54,7 +54,7 @@ export default function EditOrderPage() {
           <label className="text-sm font-medium text-slate-700">Due Date<input required type="date" value={form.dueDate} onChange={(e) => setField('dueDate', e.target.value)} className={inputClass} /></label>
           <label className="text-sm font-medium text-slate-700 sm:col-span-2">Catatan<textarea rows={4} value={form.notes} onChange={(e) => setField('notes', e.target.value)} className={inputClass} /></label>
         </div>
-        <div className="flex justify-end gap-3"><Link href="/schedule" className="rounded-xl border border-slate-200 bg-white px-5 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50">Batal</Link><button type="submit" className="inline-flex items-center gap-2 rounded-xl bg-blue-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-blue-700"><Save className="h-4 w-4" /> Simpan Perubahan</button></div>
+        <div className="flex justify-end gap-3"><Link href="/schedule" className="rounded-xl border border-slate-200 bg-white px-5 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50">Batal</Link><button type="submit" className="inline-flex items-center gap-2 rounded-xl bg-brand-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-brand-700"><Save className="h-4 w-4" /> Simpan Perubahan</button></div>
       </form>
     </div>
   )

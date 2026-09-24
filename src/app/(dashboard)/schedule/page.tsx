@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState, type DragEvent } from 'react'
 import Link from 'next/link'
 import { OrderTimer } from '@/components/production-timers'
-import { AlertTriangle, Archive, Check, Palette, Pencil, Printer, Save, Sparkles, Star, Trash2, X, ZoomIn, ZoomOut, Scan } from 'lucide-react'
+import { AlertTriangle, Archive, Pencil, PlusCircle, Save, Trash2, X, ZoomIn, ZoomOut, Scan } from 'lucide-react'
 import { formatDueDate, isOverdue, cn } from '@/lib/utils'
 import { canDragStage, canManageOrders, canMoveBetweenStages, normalizeRole } from '@/lib/access-control'
 import { archiveOrder, finishArchivedOrder, deleteOrder, moveOrderToStage, useProductionOrders, useOnlineConnection, canMoveOrder, type BoardStageId, type DeliveryMethod } from '@/lib/production-board'
@@ -11,14 +11,14 @@ import { archiveOrder, finishArchivedOrder, deleteOrder, moveOrderToStage, usePr
 type StageId = BoardStageId
 type BoardOrder = { id: string; spkCode: string; customer: string; productionType: string; meter: number; customerType: string; dueAt: string; stage: StageId; deliveryMethod?: DeliveryMethod }
 
-const STAGES: Array<{ id: StageId; label: string; dot: string; icon: typeof Archive; column: string; header: string; drop: string; card: string }> = [
-  { id: 'incoming', label: 'Order Masuk', dot: 'bg-slate-500', icon: Sparkles, column: 'border-slate-200 bg-white', header: 'board-neutral-header border-slate-200 bg-slate-50/90', drop: 'border-slate-300 bg-slate-50', card: 'board-card board-card-incoming' },
-  { id: 'design', label: 'Proses Desain', dot: 'bg-rose-500', icon: Palette, column: 'border-rose-200 bg-rose-50/70', header: 'border-rose-200 bg-rose-100/80', drop: 'border-rose-300 bg-rose-100/70', card: 'board-card board-card-design' },
-  { id: 'design_done', label: 'Menunggu Pembayaran', dot: 'bg-sky-500', icon: Check, column: 'border-sky-200 bg-sky-50/75', header: 'border-sky-200 bg-sky-100/80', drop: 'border-sky-300 bg-sky-100/70', card: 'board-card board-card-design-done' },
-  { id: 'printing', label: 'Proses Sublim', dot: 'bg-amber-500', icon: Printer, column: 'border-amber-200 bg-amber-50/80', header: 'border-amber-200 bg-amber-100/85', drop: 'border-amber-300 bg-amber-100/75', card: 'board-card board-card-printing' },
-  { id: 'press', label: 'Proses Press', dot: 'bg-violet-500', icon: Printer, column: 'border-violet-200 bg-violet-50/75', header: 'border-violet-200 bg-violet-100/80', drop: 'border-violet-300 bg-violet-100/70', card: 'board-card board-card-press' },
-  { id: 'done', label: 'Order Selesai', dot: 'bg-emerald-500', icon: Check, column: 'border-emerald-200 bg-emerald-50/75', header: 'border-emerald-200 bg-emerald-100/80', drop: 'border-emerald-300 bg-emerald-100/70', card: 'board-card board-card-done' },
-  { id: 'archive', label: 'Order Diterima Customer', dot: 'bg-slate-500', icon: Archive, column: 'border-slate-200 bg-white', header: 'board-neutral-header border-slate-200 bg-slate-50/90', drop: 'border-slate-300 bg-slate-50', card: 'board-card board-card-archive' },
+const STAGES: Array<{ id: StageId; label: string }> = [
+  { id: 'incoming', label: 'Order Masuk' },
+  { id: 'design', label: 'Proses Desain' },
+  { id: 'design_done', label: 'Menunggu Pembayaran' },
+  { id: 'printing', label: 'Proses Sublim' },
+  { id: 'press', label: 'Proses Press' },
+  { id: 'done', label: 'Order Selesai' },
+  { id: 'archive', label: 'Order Diterima Customer' },
 ]
 
 export default function ProductionBoardPage() {
@@ -29,7 +29,7 @@ export default function ProductionBoardPage() {
   const isOperator = normalizeRole(role) === 'operator'
   const boardViewport = useRef<HTMLDivElement>(null)
   const [viewportWidth, setViewportWidth] = useState(0)
-  const [manualZoom, setManualZoom] = useState<number | null>(null)
+  const [manualZoom, setManualZoom] = useState<number | null>(1)
   const fitZoom = viewportWidth ? (viewportWidth < 640 ? 1 : Math.min(1, viewportWidth / 1610)) : 1
   const zoom = manualZoom ?? fitZoom
   const zoomPercent = Math.round(zoom * 100)
@@ -67,7 +67,7 @@ export default function ProductionBoardPage() {
   const [pendingFinish, setPendingFinish] = useState<BoardOrder | null>(null)
   const [finishError, setFinishError] = useState('')
   const [finishing, setFinishing] = useState(false)
-  const orders: BoardOrder[] = sharedOrders.map((order) => ({ id: order.id, spkCode: order.spk_code, customer: order.customer.name, productionType: order.production_type, meter: order.meter, customerType: order.customer_type, dueAt: order.due_at, stage: order.board_stage, deliveryMethod: order.archive?.deliveryMethod }))
+  const orders: BoardOrder[] = useMemo(() => sharedOrders.map((order) => ({ id: order.id, spkCode: order.spk_code, customer: order.customer.name, productionType: order.production_type, meter: order.meter, customerType: order.customer_type, dueAt: order.due_at, stage: order.board_stage, deliveryMethod: order.archive?.deliveryMethod })), [sharedOrders])
 
   const ordersByStage = useMemo(() => Object.fromEntries(STAGES.map((stage) => [stage.id, orders.filter((order) => order.stage === stage.id)])) as Record<StageId, BoardOrder[]>, [orders])
 
@@ -105,34 +105,31 @@ export default function ProductionBoardPage() {
   return (
     <div className="flex min-h-full flex-col gap-5">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <div role="group" aria-label="Zoom board produksi" className="flex flex-wrap items-center gap-1 rounded-xl border border-slate-200 bg-white p-1.5 shadow-sm">
+        <div role="group" aria-label="Zoom board produksi" className="board-zoom-controls flex flex-wrap items-center gap-1 rounded-xl border border-slate-200 bg-white p-1.5 shadow-sm">
           <button type="button" onClick={() => adjustZoom(zoomPercent - 10)} disabled={zoomPercent <= 10} aria-label="Perkecil board" title="Perkecil board" className="rounded-lg p-2 text-slate-600 hover:bg-slate-100 disabled:opacity-30"><ZoomOut className="h-4 w-4" /></button>
-          <input type="range" min="10" max="150" step="1" value={zoomPercent} onChange={event => adjustZoom(Number(event.target.value))} aria-label="Ukuran board" aria-valuetext={`${zoomPercent} persen`} className="w-20 cursor-pointer accent-blue-600 sm:w-24" />
+          <input type="range" min="10" max="150" step="1" value={zoomPercent} onChange={event => adjustZoom(Number(event.target.value))} aria-label="Ukuran board" aria-valuetext={`${zoomPercent} persen`} className="w-20 cursor-pointer accent-brand-600 sm:w-24" />
           <button type="button" onClick={() => adjustZoom(zoomPercent + 10)} disabled={zoomPercent >= 150} aria-label="Perbesar board" title="Perbesar board" className="rounded-lg p-2 text-slate-600 hover:bg-slate-100 disabled:opacity-30"><ZoomIn className="h-4 w-4" /></button>
           <button type="button" onClick={() => setManualZoom(1)} aria-label="Reset zoom ke 100 persen" title="Ukuran asli (100%)" className="min-w-12 rounded-lg px-2 py-2 text-xs font-semibold tabular-nums text-slate-600 hover:bg-slate-100">{zoomPercent}%</button>
-          <button type="button" onClick={() => { setManualZoom(null); boardViewport.current?.scrollTo({ left: 0 }) }} aria-pressed={manualZoom === null} className={cn('inline-flex items-center gap-1.5 rounded-lg px-2.5 py-2 text-xs font-semibold', manualZoom === null ? 'bg-blue-50 text-blue-700' : 'text-slate-600 hover:bg-slate-100')}><Scan className="h-4 w-4" />Pas layar</button>
+          <button type="button" onClick={() => { setManualZoom(null); boardViewport.current?.scrollTo({ left: 0 }) }} aria-pressed={manualZoom === null} className={cn('inline-flex items-center gap-1.5 rounded-lg px-2.5 py-2 text-xs font-semibold', manualZoom === null ? 'bg-brand-50 text-brand-700' : 'text-slate-600 hover:bg-slate-100')}><Scan className="h-4 w-4" />Pas layar</button>
         </div>
         {manageOrders && <div className="flex items-stretch gap-2">
           <Link href="/archives" className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700"><Archive className="h-4 w-4" /> Laporan Arsip</Link>
-          <Link href="/orders/new" className="inline-flex items-center justify-center rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-blue-700">+ Tambah Order</Link>
+          <Link href="/orders/new" className="inline-flex items-center justify-center gap-2 rounded-xl bg-brand-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-brand-700"><PlusCircle className="h-4 w-4" /> Tambah Order</Link>
         </div>}
       </div>
 
       {isOperator && <p className="text-xs leading-5 text-slate-500">Anda dapat memindahkan order di area Menunggu Pembayaran, Sublim, Press, dan Order Selesai. Kolom lainnya hanya untuk dilihat.</p>}
-      {notice && <p role="status" className="rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-700">{notice}</p>}
+      {notice && <p role="status" className="rounded-xl border border-brand-200 bg-brand-50 px-4 py-3 text-sm text-brand-700">{notice}</p>}
       <div ref={boardViewport} data-board-viewport tabIndex={0} aria-label="Board produksi, geser untuk melihat seluruh tahap" className="min-w-0 overflow-x-auto pb-3">
         <div data-board-canvas className="grid grid-cols-7 gap-3" style={{ zoom, width: Math.max(1610, viewportWidth / zoom), visibility: viewportWidth ? 'visible' : 'hidden' }}>
           {STAGES.map((stage) => {
-            const StageIcon = stage.icon
             const stageOrders = ordersByStage[stage.id]
             const isTarget = dragOverStage === stage.id
             const movable = canDragStage(role, stage.id)
             return (
-              <section key={stage.id} data-board-stage={stage.id} data-movable={movable} className={cn('board-column flex min-h-[560px] flex-col overflow-hidden rounded-2xl border shadow-sm transition-all', stage.column, isTarget && 'ring-2 ring-blue-400 ring-offset-2')}>
-                <header className={cn('board-column-header flex h-12 items-center justify-between border-b px-3.5', stage.header)}>
+              <section key={stage.id} data-board-stage={stage.id} data-movable={movable} className={cn('board-column flex min-h-[560px] flex-col overflow-hidden rounded-2xl border shadow-sm transition-all',  isTarget && 'ring-2 ring-brand-400 ring-offset-2')}>
+                <header className="board-column-header flex h-12 items-center justify-between border-b px-3.5">
                   <div className="flex min-w-0 items-center gap-2">
-                    <span className={cn('h-2 w-2 shrink-0 rounded-full', stage.dot)} />
-                    <StageIcon className="h-3.5 w-3.5 shrink-0 text-slate-500" />
                     <h3 className="truncate text-xs font-bold text-slate-800">{stage.label}</h3>
                   </div>
                   <span className="ml-2 flex h-6 min-w-6 items-center justify-center rounded-full border border-black/5 bg-white px-1.5 text-xs font-semibold text-slate-600 shadow-sm">{stageOrders.length}</span>
@@ -153,33 +150,32 @@ export default function ProductionBoardPage() {
                         draggable={movable}
                         onDragStart={(event) => { if (!movable) { event.preventDefault(); return }; event.dataTransfer.effectAllowed = 'move'; event.dataTransfer.setData('text/plain', order.id); setDraggedId(order.id) }}
                         onDragEnd={() => { setDraggedId(null); setDragOverStage(null) }}
-                        className={cn('group relative select-none rounded-2xl border p-3.5 shadow-sm transition-shadow hover:shadow-md', movable ? 'cursor-grab active:cursor-grabbing' : 'cursor-default', stage.card, overdue && 'board-card-overdue', draggedId === order.id && 'scale-95 ring-2 ring-blue-500')}
+                        className={cn('group relative select-none rounded-2xl border p-3.5 shadow-sm transition-shadow hover:shadow-md', movable ? 'cursor-grab active:cursor-grabbing' : 'cursor-default', 'board-card', overdue && 'board-card-overdue', draggedId === order.id && 'scale-95 ring-2 ring-brand-500')}
                       >
                         <div className="flex items-start justify-between gap-2 pr-10">
                           <div className="flex min-w-0 items-center gap-1.5">
-                            {manageOrders ? <Link draggable={false} href={`/orders/${order.id}?from=schedule`} className="whitespace-nowrap font-mono text-xs font-bold text-blue-700 hover:underline">{order.spkCode}</Link> : <span className="whitespace-nowrap font-mono text-xs font-bold text-slate-900">{order.spkCode}</span>}
-                            {order.customerType === 'priority' && <span title="Customer prioritas" aria-label="Customer prioritas" className="inline-flex shrink-0 items-center justify-center rounded-md border border-amber-200 bg-amber-50 p-1 text-amber-600"><Star aria-hidden="true" className="h-3 w-3 fill-current" /></span>}
+                            {manageOrders ? <Link draggable={false} href={`/orders/${order.id}?from=schedule`} className="whitespace-nowrap font-mono text-xs font-bold text-brand-700 hover:underline">{order.spkCode}</Link> : <span className="whitespace-nowrap font-mono text-xs font-bold text-slate-900">{order.spkCode}</span>}
+                            {order.customerType === 'priority' && <span className="rounded border border-slate-200 px-1.5 py-0.5 text-[10px] font-medium text-slate-600">Prioritas</span>}
                           </div>
                           {manageOrders && stage.id !== 'archive' && <div className="absolute right-3.5 top-3.5 flex flex-col items-center gap-1.5">
                             <Link href={`/orders/${order.id}/edit`} draggable={false} onPointerDown={(event) => event.stopPropagation()} aria-label={`Edit ${order.spkCode}`} title="Edit order" className="board-edit-button"><Pencil className="h-3.5 w-3.5" /></Link>
                             <button type="button" draggable={false} onPointerDown={(event) => event.stopPropagation()} onClick={() => setPendingDelete(order)} aria-label={`Hapus ${order.spkCode}`} title="Hapus order" className="board-edit-button"><Trash2 className="h-3.5 w-3.5 text-red-600" /></button>
                             {stage.id === 'done' && <button type="button" draggable={false} onPointerDown={event => event.stopPropagation()} onClick={() => { setPendingArchive(order); setDeliveryMethod('pickup'); setArchiveError('') }} aria-label={`Konfirmasi diterima ${order.spkCode}`} title="Konfirmasi diterima" className="board-edit-button"><Archive className="h-3.5 w-3.5 text-emerald-600" /></button>}
                           </div>}
-                          {manageOrders && stage.id === 'archive' && <button type="button" draggable={false} onPointerDown={event => event.stopPropagation()} onClick={() => { setPendingFinish(order); setFinishError('') }} aria-label={`Simpan ${order.spkCode} ke laporan arsip`} title="Simpan ke laporan arsip" className="board-edit-button absolute right-3.5 top-3.5"><Save className="h-3.5 w-3.5 text-blue-600" /></button>}
+                          {manageOrders && stage.id === 'archive' && <button type="button" draggable={false} onPointerDown={event => event.stopPropagation()} onClick={() => { setPendingFinish(order); setFinishError('') }} aria-label={`Simpan ${order.spkCode} ke laporan arsip`} title="Simpan ke laporan arsip" className="board-edit-button absolute right-3.5 top-3.5"><Save className="h-3.5 w-3.5 text-brand-600" /></button>}
 
                         </div>
                         <p title={order.customer} className="mt-2 break-words pr-10 text-sm font-bold leading-5 text-slate-900">{order.customer}</p>
                         <div className="mt-2 flex min-h-5 flex-wrap items-center gap-1.5 pr-10 text-xs text-slate-400">
-                          <span className="board-card-tag rounded-md px-1.5 py-0.5 font-medium text-slate-600">{order.productionType}</span><span>{order.meter} m</span>
+                          <span data-production-type={order.productionType.trim().toLowerCase()} className="board-card-tag rounded-md px-1.5 py-0.5 font-medium">{order.productionType}</span><span>{order.meter} m</span>
                         </div>
-                        <p className={cn('mt-2 pr-10 text-[11px] font-medium', overdue ? 'board-due-overdue' : 'text-slate-500')}>{overdue && '⚠ '}Due: {formatDueDate(order.dueAt, completed ? 'completed' : 'active')}</p>
+                        <p className={cn('mt-2 pr-10 text-[11px] font-medium', overdue ? 'board-due-overdue' : 'text-slate-500')}>Tenggat: {formatDueDate(order.dueAt, completed ? 'completed' : 'active')}</p>
                         <OrderTimer id={order.id} hideTotal={stage.id !== 'archive'} />
-                        {isOperator && movable && <select aria-label={`Pindahkan ${order.spkCode}`} value={order.stage} onPointerDown={event => event.stopPropagation()} onChange={event => void moveOrder(order.id, event.target.value as StageId)} className="mt-3 w-full rounded-lg border border-slate-200 bg-white px-2 py-2 text-xs text-slate-700"><option value={order.stage}>Pindahkan ke...</option>{STAGES.filter(target => allowedDrop(order, target.id)).map(target => <option key={target.id} value={target.id}>{target.label}</option>)}</select>}
                         {stage.id === 'archive' && <><p className="mt-3 text-xs font-medium text-emerald-600">{order.deliveryMethod === 'pickup' ? 'Sudah diambil pembeli' : order.deliveryMethod === 'delivery' ? 'Sudah dikirim / diterima' : 'Penyerahan tercatat'}</p></>}
                       </article>
                     )
                   })}
-                  {stageOrders.length === 0 && <div className={cn('board-empty flex flex-1 items-center justify-center rounded-xl border-2 border-dashed text-center transition-colors', isTarget ? stage.drop : 'border-slate-200/80 bg-white/25')}><p className="px-3 text-xs text-slate-400">{manageOrders || movable ? 'Seret order ke sini' : 'Belum ada order'}</p></div>}
+                  {stageOrders.length === 0 && <div className={cn('board-empty flex flex-1 items-center justify-center rounded-xl border-2 border-dashed text-center transition-colors', isTarget ? 'border-brand-300 bg-brand-50' : 'border-slate-200/80 bg-white/25')}><p className="px-3 text-xs text-slate-400">{manageOrders || movable ? 'Seret order ke sini' : 'Belum ada order'}</p></div>}
                 </div>
               </section>
             )
@@ -215,7 +211,7 @@ export default function ProductionBoardPage() {
                 setPendingFinish(null)
               } catch {setFinishError('Laporan belum tersimpan. Periksa koneksi dan coba lagi.')}
               finally {setFinishing(false)}
-            }} className="rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-50">{finishing?'Menyimpan...':'Lanjut'}</button>
+            }} className="rounded-xl bg-brand-600 px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-50">{finishing?'Menyimpan...':'Lanjut'}</button>
           </div>
         </div>
       </div>}

@@ -2,7 +2,7 @@
 
 import Link from 'next/link'
 import { useState } from 'react'
-import { AlertTriangle, CheckCircle2, Loader2, PackageCheck, PlusCircle, Search } from 'lucide-react'
+import { AlertTriangle, PlusCircle, Search } from 'lucide-react'
 import StatCard from '@/components/dashboard/stat-card'
 import ProductionFlow from '@/components/dashboard/production-flow'
 import { StatusBadge } from '@/components/ui/badges'
@@ -46,7 +46,7 @@ function OrderTable({ title, headerAction, orders, emptyMessage, canViewDetails 
                   <td className="break-words px-4 py-3"><p className="text-sm font-medium text-slate-900">{order.customer.name}</p><p className="text-xs text-slate-400">{order.customer.phone}</p></td>
                   <td className="px-4 py-3"><StatusBadge stepCode={order.current_step.code} stepName={order.current_step.name} colorToken={STEP_COLORS[order.current_step.code]} size="sm" /></td>
                   <td className="px-4 py-3"><span className={overdue ? 'text-xs font-medium text-red-600' : 'text-xs font-medium text-slate-600'}>{formatDueDate(order.due_at, order.order_state)}</span></td>
-                  {canViewDetails && <td className="px-4 py-3 text-right"><Link href={`/orders/${order.id}?from=dashboard`} className="text-xs font-medium text-blue-600 hover:text-blue-800">Lihat Detail</Link></td>}
+                  {canViewDetails && <td className="px-4 py-3 text-right"><Link href={`/orders/${order.id}?from=dashboard`} className="text-xs font-medium text-brand-600 hover:text-brand-800">Lihat Detail</Link></td>}
                 </tr>
               )
             })}
@@ -70,22 +70,22 @@ export default function DashboardPage() {
   const filteredOrders = orders.filter((order) => !query || order.spk_code.toLowerCase().includes(query) || order.customer.name.toLowerCase().includes(query))
   
   const visibleOrders = filteredOrders.filter(order => stage === 'all' || order.board_stage === stage)
-  const filterDropdown = <select aria-label="Filter tahap order" value={stage} onChange={event => setStage(event.target.value as ProcessStage | 'all')} className="max-w-[220px] rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-xs font-medium text-slate-700 focus:outline-2 focus:outline-blue-600">
+  const filterDropdown = <select aria-label="Filter tahap order" value={stage} onChange={event => setStage(event.target.value as ProcessStage | 'all')} className="max-w-[220px] rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-xs font-medium text-slate-700 focus:outline-2 focus:outline-brand-600">
     <option value="all">Semua tahap</option>
     {PROCESS_STAGES.map(id => <option key={id} value={id}>{BOARD_STAGE_META[id].name}</option>)}
   </select>
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-wrap items-center justify-between gap-3"><p className="text-sm text-slate-500">{orders.length} order di board produksi</p>{canViewDetails && <Link href="/orders/new" className="inline-flex items-center gap-2 rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-blue-700"><PlusCircle className="h-4 w-4" /> Tambah Order</Link>}</div>
-      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-        <StatCard title="Order Baru" value={newOrders.length} icon={PackageCheck} color="amber" />
-        <StatCard title="Sedang Diproses" value={inProgress.length} icon={Loader2} color="blue" />
-        <StatCard title="Order Selesai" value={completedOrders.length} icon={CheckCircle2} color="emerald" />
-        <StatCard title="Terlambat" value={overdueOrders.length} icon={AlertTriangle} color="red" />
+      <div className="flex flex-wrap items-center justify-between gap-3"><div><h2 className="text-2xl font-semibold tracking-tight text-slate-900">Dashboard produksi</h2><p className="mt-1 text-sm text-slate-500">Pantau progres dan tenggat dari {orders.length} order di board.</p></div>{canViewDetails && <Link href="/orders/new" className="inline-flex items-center gap-2 rounded-xl bg-brand-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-brand-700"><PlusCircle className="h-4 w-4" /> Tambah Order</Link>}</div>
+      <div className="grid grid-cols-2 overflow-hidden rounded-lg border border-slate-200 bg-white lg:grid-cols-4">
+        <StatCard title="Order Baru" value={newOrders.length} />
+        <StatCard title="Sedang Diproses" value={inProgress.length} />
+        <StatCard title="Order Selesai" value={completedOrders.length} />
+        <StatCard title="Terlambat" value={overdueOrders.length} attention />
       </div>
       <ProductionFlow selectedStage={stage} onSelectStage={setStage} />
-      <div className="relative"><Search className="pointer-events-none absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-slate-400" /><input suppressHydrationWarning type="search" aria-label="Cari SPK atau nama customer" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Cari SPK / Nama Customer..." className="block w-full rounded-xl border border-slate-200 bg-white py-3 pl-11 pr-4 text-sm text-slate-900 placeholder:text-slate-400 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500" /></div>
+      <div className="relative"><Search className="pointer-events-none absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-slate-400" /><input suppressHydrationWarning type="search" aria-label="Cari SPK atau nama customer" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Cari SPK / Nama Customer..." className="block w-full rounded-xl border border-slate-200 bg-white py-3 pl-11 pr-4 text-sm text-slate-900 placeholder:text-slate-400 focus:border-brand-500 focus:outline-none focus:ring-1 focus:ring-brand-500" /></div>
       <div id="dashboard-orders" className="scroll-mt-20">
         <OrderTable canViewDetails={canViewDetails} title="Order di Board" headerAction={filterDropdown} orders={visibleOrders} emptyMessage={search ? 'Order tidak ditemukan.' : 'Tidak ada order di tahap ini.'} />
       </div>
