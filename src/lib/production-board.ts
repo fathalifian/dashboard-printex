@@ -4,6 +4,7 @@ import { useSyncExternalStore } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { PROCESS_STAGES, type ProcessEvent } from '@/lib/process-metrics'
 import { ACCESS_SCHEMA_VERSION, canManageOrders, canMoveBetweenStages, normalizeRole } from '@/lib/access-control'
+import { ORDER_PHOTO_BUCKET, compressOrderPhoto } from '@/lib/order-photo'
 
 export type BoardStageId = typeof PROCESS_STAGES[number]
 export type DeliveryMethod = 'pickup' | 'delivery'
@@ -21,7 +22,7 @@ export type NewOrderInput = Omit<OrderEditInput,'spkCode'>
 export type BoardOrder = {
   id:string;spk_code:string;customer:{name:string;phone:string};production_type:string;meter:number;customer_type:string;
   order_state:string;current_step:{code:string;name:string};order_date:string;due_at:string;notes:string;created_at:string;
-  board_stage:BoardStageId;color_token:string;version:number;archive:{archivedAt:string;deliveryMethod:DeliveryMethod;finalizedAt?:string}|null
+  board_stage:BoardStageId;color_token:string;version:number;photo_path:string|null;archive:{archivedAt:string;deliveryMethod:DeliveryMethod;finalizedAt?:string}|null
 }
 type Connection = {state:'loading'|'ready'|'error';realtime:boolean;busy:boolean;error:string;profile:{id:string;full_name:string;role:string}|null}
 const INITIAL_CONNECTION: Connection = {state:'loading',realtime:false,busy:false,error:'',profile:null}
@@ -35,6 +36,8 @@ let client: ReturnType<typeof createClient> | undefined
 let fetching: Promise<void> | undefined
 let refreshAgain = false
 let refreshTimer: ReturnType<typeof setTimeout> | undefined
+let lastPhotoCleanup = 0
+let photoCleanupRunning = false
 const listeners = new Set<() => void>()
 function emit() { listeners.forEach(listener => listener()) }
 function setConnection(update: Partial<Connection>) { connection = {...connection,...update}; emit() }
@@ -72,13 +75,17 @@ async function fetchSnapshot() {
     return {id:String(row.id),spk_code:String(row.spk_code),customer:{name:String(customer?.name??''),phone:String(customer?.phone??'')},
       production_type:String(row.production_type),meter:Number(row.meter),customer_type:String(row.customer_type),order_state:meta.orderState,
       current_step:{code:meta.code,name:meta.name},board_stage:stage,color_token:meta.color,order_date:String(row.order_date),due_at:String(row.due_at??''),
-      notes:String(row.notes??''),created_at:String(row.created_at),version:Number(row.version),
+      notes:String(row.notes??''),created_at:String(row.created_at),version:Number(row.version),photo_path:row.photo_path?String(row.photo_path):null,
       archive:row.archived_at?{archivedAt:String(row.archived_at),deliveryMethod:row.delivery_method as DeliveryMethod,finalizedAt:row.archive_finalized_at?String(row.archive_finalized_at):undefined}:null}
   })
   const nextHistory: ProcessEvent[] = eventRows.map(row=>({id:String(row.id),orderId:String(row.order_identity??row.order_id),spkCode:String(row.spk_code),customerName:String(row.customer_name??''),
     stage:stageFromStep(row.step_id),kind:row.event_kind as ProcessEvent['kind'],occurredAt:String(row.occurred_at),actorName:row.actor_name?String(row.actor_name):null}))
   orders=nextOrders;active=orders.filter(order=>order.board_stage!=='archive');production=orders.filter(order=>!order.archive?.finalizedAt);history=nextHistory
   setConnection({state:'ready',error:'',profile:{...profile,role}})
+  if (canManageOrders(role) && !photoCleanupRunning && Date.now() - lastPhotoCleanup > 5 * 60 * 1000) {
+    lastPhotoCleanup = Date.now(); photoCleanupRunning = true
+    void cleanupOrderPhotos().catch(() => {}).finally(() => { photoCleanupRunning = false })
+  }
 }
 export async function refreshOnlineData() {
   // An explicit refresh also covers notifications still waiting in the batch.
@@ -144,6 +151,7 @@ async function mutate(action:string,id:string,data:unknown={}) {
   try {
     const {error}=await db().rpc('printex_mutate_order',{p_action:action,p_order_id:id,p_expected_version:order?.version??null,p_data:data})
     if(error) throw error
+    if (action === 'delete' && order?.photo_path) await cleanupOrderPhotos(order.photo_path).catch(() => {})
     await refreshOnlineData()
   } catch(error) {setConnection({error:errorMessage(error)});throw error} finally {setConnection({busy:false})}
 }
@@ -163,3 +171,47 @@ export async function moveOrderToStage(id:string,stage:BoardStageId){
 }
 export async function archiveOrder(id:string,deliveryMethod:DeliveryMethod){await mutate('archive',id,{deliveryMethod});return true}
 export async function finishArchivedOrder(id:string){await mutate('finish',id);return true}
+
+// The database claims only unreferenced paths and prevents attaching a claimed file.
+// Failed API deletions remain queued and are retried during later online refreshes.
+export async function cleanupOrderPhotos(path: string | null = null) {
+  const { data, error } = await db().rpc('printex_claim_photo_cleanup', { p_path: path })
+  if (error) throw error
+  const paths = (data as { path: string }[] | null)?.map(row => row.path) ?? []
+  if (!paths.length) return
+  const result = await db().storage.from(ORDER_PHOTO_BUCKET).remove(paths)
+  if (result.error) throw result.error
+}
+
+export async function saveOrderPhoto(id: string, file: File | null) {
+  if (connection.state !== 'ready' || connection.busy) throw new Error('Tunggu sinkronisasi selesai sebelum mengubah foto.')
+  if (!canManageOrders(connection.profile?.role)) throw new Error('Hanya Owner/Admin yang dapat mengubah foto order.')
+  const order = orders.find(item => item.id === id)
+  if (!order || order.board_stage === 'archive') throw new Error('Order tidak tersedia untuk perubahan foto.')
+  let path: string | null = null
+  const storage = db().storage.from(ORDER_PHOTO_BUCKET)
+  setConnection({ busy: true })
+  try {
+    if (file) {
+      file = await compressOrderPhoto(file)
+      path = `${id}/${crypto.randomUUID()}.webp`
+    }
+    if (file && path) {
+      const { error } = await storage.upload(path, file, { contentType: file.type, upsert: false })
+      if (error) throw error
+    }
+    const { error } = await db().rpc('printex_set_order_photo', { p_order_id: id, p_expected_version: order.version, p_path: path })
+    if (error) throw error
+    // Cleanup is best-effort; the committed order must stay visible even if cleanup fails.
+    if (order.photo_path && order.photo_path !== path) await cleanupOrderPhotos(order.photo_path).catch(() => {})
+    await refreshOnlineData()
+  } catch (error) {
+    // Even after a lost RPC response, claim checks the committed reference before deletion.
+    if (path) await cleanupOrderPhotos(path).catch(() => {})
+    const code = error && typeof error === 'object' && 'code' in error ? error.code : ''
+    if (code === 'PGRST202' || /bucket not found/i.test(errorMessage(error))) {
+      throw new Error('Penyimpanan foto belum aktif. Jalankan migrasi 0015_order_photos.sql di Supabase.')
+    }
+    throw error
+  } finally { setConnection({ busy: false }) }
+}

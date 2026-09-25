@@ -4,6 +4,7 @@ import { Suspense } from 'react'
 import { useParams, useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import { OrderTimer } from '@/components/production-timers'
+import OrderPhoto from '@/components/order-photo'
 import { AlertTriangle, Phone, CheckCircle2, Circle, Loader2, Pencil, Trash2 } from 'lucide-react'
 import { PROCESS_STAGES } from '@/lib/process-metrics'
 import { deleteOrder, useAllOrders, useProcessHistory, BOARD_STAGE_META } from '@/lib/production-board'
@@ -73,9 +74,9 @@ function OrderDetail() {
         </div>
       </div>
 
-      <div>
+      <div className="grid items-start gap-5 lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
         {/* Left: Order Info + Timeline */}
-        <div className="space-y-5">
+        <div className="min-w-0 space-y-5">
           {/* Info Cards */}
           <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
             <h3 className="text-sm font-semibold text-slate-900 mb-4">Informasi Order</h3>
@@ -165,7 +166,10 @@ function OrderDetail() {
             </div>
           </div>
         </div>
-
+        <section className="min-w-0 rounded-xl border border-slate-200 bg-white p-5 shadow-sm" aria-label="Foto order">
+          <h3 className="text-sm font-semibold text-slate-900">Foto Order</h3>
+          {order.photo_path ? <OrderPhoto orderId={order.id} spkCode={order.spk_code} path={order.photo_path} editable={false} /> : <p className="mt-4 text-sm text-slate-500">Belum ada foto order.</p>}
+        </section>
       </div>
       <OrderTimer id={order.id} detail />
     </div>

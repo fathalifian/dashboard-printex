@@ -17,7 +17,7 @@ export default function DashboardLayout({
     <CustomerServiceProvider><div className={`${styles.shell} flex h-dvh overflow-hidden bg-[var(--background)]`}>
       <a href="#main-content" className={styles.skipLink}>Langsung ke konten</a>
       <Sidebar collapsed={sidebarCollapsed} />
-      <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
         <Header sidebarCollapsed={sidebarCollapsed} onToggleSidebar={() => setSidebarCollapsed(value => !value)} />
         <main id="main-content" tabIndex={-1} className={`${styles.main} flex-1 overflow-y-auto p-4 sm:p-6`}><OnlineStatus>{children}</OnlineStatus></main>
       </div>

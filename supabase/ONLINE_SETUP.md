@@ -1,5 +1,27 @@
 # Menjalankan mode online
 
+## Shortcut spreadsheet stok (0017)
+
+Jalankan `migrations/0017_stock_shortcuts.sql`, lalu `migrations/0018_owner_stock_shortcuts.sql` melalui Supabase SQL Editor untuk menyimpan nama dan link dua shortcut di Board Produksi. Jika 0017 sudah terpasang, cukup jalankan 0018 untuk menambahkan hak Owner. Tautan awal tetap tersedia sebelum migrasi. Owner dan Admin aktif dapat mengubah nama/link melalui ikon pensil; Operator hanya dapat membuka tautan. Aturan yang sama diterapkan di server dan RLS database. Perubahan terlihat di perangkat lain saat kembali ke halaman atau saat pembaruan berkala (30 detik). Menjalankan ulang migrasi tidak menimpa shortcut yang sudah diedit.
+
+## Foto order
+
+Untuk database yang sudah online, jalankan `migrations/0015_order_photos.sql` melalui Supabase SQL Editor. Migrasi ini menambah kolom foto opsional dan bucket privat `order-photos` (JPG/PNG/WebP, maksimal 5 MB untuk file sumber). Owner/Admin menyeret satu file foto dari file manager langsung ke kartu order di Kanban. Penanda hanya muncul saat file berada di atas kartu, tanpa area unggah permanen. Foto otomatis diunggah ke order tersebut dan dapat dilihat di Detail Order. Menjatuhkan foto baru pada kartu yang sama mengganti foto lama. Seret kartu antar tahap tetap berfungsi seperti biasa. Order arsip dan akun Operator tidak dapat mengunggah foto. Tanpa foto, alur order tetap berjalan seperti biasa.
+
+Foto menggunakan tautan sementara dan diperbarui otomatis saat halaman aktif. File pengganti menggunakan lokasi baru agar foto antarperangkat tidak tertimpa cache. Jika koneksi putus saat penyimpanan, muat ulang board sebelum mencoba kembali.
+
+### Kompresi dan pembersihan otomatis (0016)
+
+Jalankan `migrations/0016_photo_cleanup.sql` setelah 0015 untuk mengaktifkan pembersihan aman. Setup lengkap sudah mencakup keduanya.
+
+- Foto baru diperkecil di browser sebelum diunggah: WebP, sisi terpanjang maksimal 1.600 piksel, target 200–400 KB. Foto sederhana boleh lebih kecil dari 200 KB. Kualitas dipilih antara 0,72 dan 0,92; jika 400 KB tidak tercapai pada batas kualitas ini, unggahan ditolak dan pengguna diminta memotong area yang tidak diperlukan. Hasil kompresi dapat diperiksa melalui Detail Order setelah unggahan selesai.
+- Setelah order dihapus permanen, file fotonya langsung dibersihkan melalui Storage API. Penghapusan atau penggantian foto juga memasukkan lokasi lama ke antrean database dalam transaksi yang sama.
+- Unggahan gagal dibersihkan segera jika server memastikan file tidak dipakai order mana pun. Jika respons simpan hilang tetapi transaksi berhasil, foto yang tertaut tetap aman.
+- Saat Owner/Admin aktif membuka aplikasi, pembersihan berjalan setiap sekitar 5 menit, maksimal 50 file per pemeriksaan. Ini mengulang penghapusan yang gagal dan memungut file tidak tertaut berumur lebih dari 24 jam (misalnya tab ditutup saat unggah). Saat semua aplikasi ditutup, antrean tetap tersimpan dan dilanjutkan saat Owner/Admin kembali online.
+- RPC menandai file sebelum penghapusan; file yang ditandai tidak boleh ditautkan kembali. Storage API menghapus file sebenarnya, bukan sekadar baris metadata. Foto yang masih tertaut, termasuk foto arsip, tidak dibersihkan. Baris antrean yang selesai dibuang setelah satu hari.
+
+Migrasi tidak mengompresi atau menghapus foto lama yang masih dipakai order. Tidak ada masa kedaluwarsa untuk foto arsip.
+
 1. Database baru: jalankan migrasi 0001 sampai 0006 berurutan di Supabase SQL Editor. Jika tabel sudah ada, jangan ulangi migrasi awal.
 2. Jalankan `SETUP_ONLINE.sql` (setup online dan penghapusan endpoint impor lokal, aman dijalankan ulang).
 3. Buat akun Owner di Authentication > Users, lalu jalankan `ACTIVATE_ADMIN.sql`.

@@ -9,6 +9,14 @@ CREATE TABLE auth.users(id uuid PRIMARY KEY, email text, deleted_at timestamptz,
 CREATE FUNCTION auth.uid() RETURNS uuid LANGUAGE sql STABLE AS $$ SELECT nullif(current_setting('request.jwt.claim.sub',true),'')::uuid $$;
 GRANT USAGE ON SCHEMA auth TO authenticated,anon;
 CREATE PUBLICATION supabase_realtime;`)
+// Supabase owns this schema in production; model Storage metadata and RLS locally.
+await db.exec(`CREATE SCHEMA storage;
+CREATE TABLE storage.buckets(id text PRIMARY KEY,name text,public boolean,file_size_limit bigint,allowed_mime_types text[]);
+CREATE TABLE storage.objects(id uuid PRIMARY KEY DEFAULT gen_random_uuid(),bucket_id text REFERENCES storage.buckets(id),name text,created_at timestamptz DEFAULT now(),UNIQUE(bucket_id,name));
+ALTER TABLE storage.objects ENABLE ROW LEVEL SECURITY;
+GRANT USAGE ON SCHEMA storage TO authenticated,anon;
+GRANT SELECT,INSERT,UPDATE,DELETE ON storage.objects TO authenticated;
+GRANT SELECT ON storage.buckets TO authenticated;`)
 for(const file of readdirSync('supabase/migrations').filter(file=>file.endsWith('.sql')).sort()) {
   const sql=readFileSync('supabase/migrations/'+file,'utf8').replace(/CREATE EXTENSION IF NOT EXISTS "uuid-ossp";/,'')
   try {await db.exec(sql)}catch(error){console.error('Migration failed:',file,error.message);throw error}
@@ -270,6 +278,154 @@ test('customer service contact is shared, admin-managed and protected by RLS', a
   await setUser(csAdmin)
   assert.equal((await read()).rows.length, 0)
   assert.equal((await update('6281111111111')).rows.length, 0)
+  await db.exec('RESET ROLE; SET ROLE anon')
+  await assert.rejects(read, /permission denied/)
+  await db.exec('RESET ROLE')
+})
+
+test('optional photos enforce private storage, ownership roles, concurrency, and archive immutability', async () => {
+  await db.exec('RESET ROLE')
+  const owner = 'aaaaaaaa-1111-4000-8000-000000000001'
+  const operator = 'aaaaaaaa-1111-4000-8000-000000000002'
+  const orderId = 'aaaaaaaa-2222-4000-8000-000000000001'
+  const path = `${orderId}/aaaaaaaa-3333-4000-8000-000000000001.jpg`
+  const replacement = `${orderId}/aaaaaaaa-3333-4000-8000-000000000002.png`
+  await db.query("INSERT INTO auth.users(id,email) VALUES($1,'photo-owner@test.local'),($2,'photo-operator@test.local')", [owner, operator])
+  await db.query("UPDATE profiles SET role=CASE WHEN id=$1 THEN 'owner' ELSE 'operator' END,is_active=true WHERE id IN ($1,$2)", [owner, operator])
+  const user = id => db.query("SELECT set_config('request.jwt.claim.sub',$1,false)", [id])
+  const row = async () => (await db.query('SELECT * FROM orders WHERE id=$1', [orderId])).rows[0]
+  const link = (path, version) => db.query('SELECT printex_set_order_photo($1,$2,$3)', [orderId, version, path])
+  const upload = path => db.query("INSERT INTO storage.objects(bucket_id,name) VALUES('order-photos',$1)", [path])
+  await db.exec('SET ROLE authenticated'); await user(owner)
+  await mutate('create', input, null, orderId)
+  assert.equal((await row()).photo_path, null)
+  await assert.rejects(() => link(path, 1), /belum diunggah/)
+  await assert.rejects(() => upload('wrong-folder/photo.jpg'), /row-level security/)
+  await upload(path)
+  await assert.rejects(() => link('bbbbbbbb-2222-4000-8000-000000000001/photo.jpg', 1), /tidak valid/)
+  const historyBefore = (await db.query('SELECT count(*)::int AS n FROM process_history WHERE order_id=$1', [orderId])).rows[0].n
+  await link(path, 1)
+  assert.equal((await row()).photo_path, path)
+  assert.equal((await row()).version, 2)
+  assert.equal((await db.query('SELECT count(*)::int AS n FROM process_history WHERE order_id=$1', [orderId])).rows[0].n, historyBefore)
+  assert.equal((await db.query('DELETE FROM storage.objects WHERE name=$1 RETURNING name', [path])).rows.length, 0)
+  await upload(replacement)
+  await assert.rejects(() => link(replacement, 1), /perangkat lain/)
+  await user(operator)
+  assert.equal((await db.query('SELECT name FROM storage.objects WHERE name=$1', [path])).rows.length, 1)
+  await assert.rejects(() => link(null, 2), /Owner\/Admin/)
+  await assert.rejects(() => upload(`${orderId}/aaaaaaaa-3333-4000-8000-000000000003.jpg`), /row-level security/)
+  await user(owner)
+  await link(replacement, 2)
+  await db.query('SELECT * FROM printex_claim_photo_cleanup($1)', [path])
+  assert.equal((await db.query('DELETE FROM storage.objects WHERE name=$1 RETURNING name', [path])).rows.length, 1)
+  await link(null, 3)
+  assert.equal((await row()).photo_path, null)
+  await link(replacement, 4)
+  for (const code of ['DESIGN_DONE','PRINTING','DONE']) await mutate('move', { code }, (await row()).version, orderId)
+  await mutate('archive', { deliveryMethod: 'pickup' }, (await row()).version, orderId)
+  await assert.rejects(async () => link(null, (await row()).version), /arsip/)
+  assert.equal((await row()).photo_path, replacement)
+  await db.exec('RESET ROLE')
+  const migration = readFileSync('supabase/migrations/0015_order_photos.sql', 'utf8')
+  await db.exec(migration); await db.exec(migration)
+  await db.exec(readFileSync('supabase/migrations/0016_photo_cleanup.sql', 'utf8'))
+  assert.equal((await row()).photo_path, replacement)
+  assert.equal((await db.query("SELECT public FROM storage.buckets WHERE id='order-photos'")).rows[0].public, false)
+  await db.query('UPDATE profiles SET is_active=false WHERE id=$1', [operator])
+  await db.exec('SET ROLE authenticated'); await user(operator)
+  assert.equal((await db.query("SELECT * FROM storage.objects WHERE bucket_id='order-photos'")).rows.length, 0)
+  await db.exec('RESET ROLE; SET ROLE anon')
+  await assert.rejects(() => db.query('SELECT * FROM storage.objects'), /permission denied/)
+  await db.exec('RESET ROLE')
+})
+
+test('cleanup claims only orphan photos, retries safely, and queues photos on permanent order deletion', async () => {
+  await db.exec('RESET ROLE')
+  await db.exec(readFileSync('supabase/migrations/0016_photo_cleanup.sql', 'utf8'))
+  const owner = 'aaaaaaaa-1111-4000-8000-000000000001'
+  const orderId = 'cccccccc-2222-4000-8000-000000000001'
+  const attached = `${orderId}/cccccccc-3333-4000-8000-000000000001.webp`
+  const orphan = `${orderId}/cccccccc-3333-4000-8000-000000000002.webp`
+  const fresh = `${orderId}/cccccccc-3333-4000-8000-000000000003.webp`
+  await db.query("SELECT set_config('request.jwt.claim.sub',$1,false)", [owner])
+  await db.exec('SET ROLE authenticated')
+  await mutate('create', input, null, orderId)
+  for (const path of [attached, orphan, fresh]) await db.query("INSERT INTO storage.objects(bucket_id,name) VALUES('order-photos',$1)", [path])
+  await db.query('SELECT printex_set_order_photo($1,1,$2)', [orderId, attached])
+  await db.exec('RESET ROLE')
+  await db.query("UPDATE storage.objects SET created_at=now()-interval '2 days' WHERE name IN ($1,$2)", [attached, orphan])
+  await db.exec('SET ROLE authenticated')
+  const claim = path => db.query('SELECT * FROM printex_claim_photo_cleanup($1)', [path])
+  assert.deepEqual((await claim(attached)).rows, []) // Lost response after link: never delete it.
+  const candidates = (await claim(null)).rows.map(row => row.path)
+  assert.ok(candidates.includes(orphan))
+  assert.ok(!candidates.includes(attached))
+  assert.ok(!candidates.includes(fresh)) // In-progress uploads get a 24h grace period.
+  assert.deepEqual((await claim(orphan)).rows, [{ path: orphan }]) // Retry after failed Storage API.
+  await assert.rejects(() => db.query('SELECT printex_set_order_photo($1,2,$2)', [orderId, orphan]), /dibersihkan/)
+  assert.equal((await db.query('DELETE FROM storage.objects WHERE name=$1 RETURNING name', [orphan])).rows.length, 1)
+  assert.equal((await db.query('DELETE FROM storage.objects WHERE name=$1 RETURNING name', [fresh])).rows.length, 0)
+  await claim(fresh) // Explicit failed upload can be removed immediately.
+  assert.equal((await db.query('DELETE FROM storage.objects WHERE name=$1 RETURNING name', [fresh])).rows.length, 1)
+  await mutate('delete', {}, 2, orderId)
+  assert.deepEqual((await claim(null)).rows.filter(row => row.path === attached), [{ path: attached }])
+  assert.equal((await db.query('DELETE FROM storage.objects WHERE name=$1 RETURNING name', [attached])).rows.length, 1)
+  await db.exec('RESET ROLE')
+  await db.query("UPDATE order_photo_cleanup SET queued_at=now()-interval '2 days'")
+  await db.exec('SET ROLE authenticated'); await claim(null)
+  await assert.rejects(() => db.query('SELECT * FROM order_photo_cleanup'), /permission denied/)
+  await db.exec('RESET ROLE')
+  assert.equal((await db.query('SELECT * FROM order_photo_cleanup WHERE path IN ($1,$2,$3)', [attached, orphan, fresh])).rows.length, 0)
+  await db.query("SELECT set_config('request.jwt.claim.sub',$1,false)", ['aaaaaaaa-1111-4000-8000-000000000002'])
+  await db.exec('SET ROLE authenticated')
+  await assert.rejects(() => claim(null), /Owner\/Admin/)
+  await db.exec('RESET ROLE')
+})
+
+test('shared stock shortcuts persist Owner/Admin edits while RLS denies Operator, inactive and anonymous writes', async () => {
+  await db.exec('RESET ROLE')
+  const shortcutAdmin = 'dddddddd-1111-4000-8000-000000000001'
+  const shortcutOwner = 'dddddddd-1111-4000-8000-000000000002'
+  const shortcutOperator = 'dddddddd-1111-4000-8000-000000000003'
+  for (const [id, role] of [[shortcutAdmin, 'admin'], [shortcutOwner, 'owner'], [shortcutOperator, 'operator']]) {
+    await db.query('INSERT INTO auth.users(id,email) VALUES($1,$2)', [id, `${role}-shortcut@test.local`])
+    await db.query('UPDATE profiles SET role=$2,is_active=true WHERE id=$1', [id, role])
+  }
+  const user = id => db.query("SELECT set_config('request.jwt.claim.sub',$1,false)", [id])
+  const read = () => db.query('SELECT * FROM stock_shortcuts ORDER BY id')
+  const update = (label, version = 1) => db.query("UPDATE stock_shortcuts SET label=$1,url='https://docs.google.com/spreadsheets/d/updated/edit#gid=1',version=version+1 WHERE id='dtf_paper' AND version=$2 RETURNING *", [label, version])
+  await db.exec('SET ROLE authenticated')
+  for (const id of [shortcutOperator]) {
+    await user(id)
+    assert.equal((await read()).rows.length, 2)
+    assert.equal((await update('Forbidden')).rows.length, 0)
+  }
+  await user(shortcutAdmin)
+  const edited = (await update('Persediaan DTF')).rows[0]
+  assert.equal(edited.label, 'Persediaan DTF')
+  assert.equal(Number(edited.version), 2)
+  assert.equal((await update('Stale')).rows.length, 0)
+  await assert.rejects(() => db.query("UPDATE stock_shortcuts SET url='javascript:alert(1)' WHERE id='fabric'"), /check constraint/)
+  await assert.rejects(() => db.query("UPDATE stock_shortcuts SET label='' WHERE id='fabric'"), /check constraint/)
+  await assert.rejects(() => db.query("DELETE FROM stock_shortcuts WHERE id='fabric'"), /permission denied/)
+  await assert.rejects(() => db.query("UPDATE stock_shortcuts SET id='other' WHERE id='fabric'"), /permission denied/)
+  await db.exec('RESET ROLE')
+  const migration = readFileSync('supabase/migrations/0017_stock_shortcuts.sql', 'utf8')
+  await db.exec(migration); await db.exec(migration)
+  const ownerMigration = readFileSync('supabase/migrations/0018_owner_stock_shortcuts.sql', 'utf8')
+  await db.exec(ownerMigration); await db.exec(ownerMigration)
+  assert.equal((await read()).rows[0].label, 'Persediaan DTF')
+  await db.exec('SET ROLE authenticated')
+  await user(shortcutOwner)
+  const ownerEdit = (await update('Stok dari Owner', 2)).rows[0]
+  assert.equal(ownerEdit.label, 'Stok dari Owner')
+  assert.equal(Number(ownerEdit.version), 3)
+  await db.exec('RESET ROLE')
+  await db.query('UPDATE profiles SET is_active=false WHERE id=$1', [shortcutOwner])
+  await db.exec('SET ROLE authenticated')
+  assert.equal((await read()).rows.length, 0)
+  assert.equal((await update('Inactive', 3)).rows.length, 0)
   await db.exec('RESET ROLE; SET ROLE anon')
   await assert.rejects(read, /permission denied/)
   await db.exec('RESET ROLE')

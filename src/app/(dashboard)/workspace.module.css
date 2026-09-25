@@ -1,5 +1,5 @@
-.shell { --workspace-muted: #647080; }
-.main { scrollbar-gutter: stable; }
+.shell { --workspace-muted: #647080; position: fixed; inset: 0; }
+.main { position: relative; min-height: 0; scrollbar-gutter: stable; }
 .main:focus { outline: none; }
 .shell :global(.rounded-xl), .shell :global(.rounded-2xl) { border-radius: 8px; }
 .main :global(.shadow-sm), .main :global(.shadow-md) { box-shadow: none; }

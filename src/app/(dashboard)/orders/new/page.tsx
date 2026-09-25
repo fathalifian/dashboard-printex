@@ -4,12 +4,15 @@ import { useState, useRef } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { jakartaDate } from '@/lib/process-metrics'
-import { addOrder } from '@/lib/production-board'
+import { addOrder, errorMessage } from '@/lib/production-board'
 
 const PRODUCTION_TYPES = ['Sublim', 'DTF', 'Umbul-umbul', 'Batik', 'Jersey']
 export default function NewOrderPage() {
   const router = useRouter()
   const requestId = useRef<string | null>(null)
+  const submitting = useRef(false)
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState('')
   const [form, setForm] = useState({
     customer: '',
     productionType: '',
@@ -26,8 +29,12 @@ export default function NewOrderPage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
+    if (submitting.current) return
+    submitting.current = true
+    setSaving(true); setError('')
     requestId.current ??= crypto.randomUUID()
-    try { await addOrder({
+    try {
+      await addOrder({
       customerName: form.customer.trim(),
       productionType: form.productionType,
       meter: Number(form.meter),
@@ -35,8 +42,11 @@ export default function NewOrderPage() {
       orderDate: form.orderDate,
       dueDate: form.dueDate,
       notes: form.notes.trim(),
-    }, requestId.current) } catch { return }
-    router.replace('/schedule')
+      }, requestId.current)
+      router.replace('/schedule')
+    } catch (error) {
+      setError(errorMessage(error))
+    } finally { submitting.current = false; setSaving(false) }
   }
 
   return (
@@ -48,7 +58,8 @@ export default function NewOrderPage() {
       </div>
 
 
-      <form onSubmit={handleSubmit} className="space-y-5">
+      <form onSubmit={handleSubmit} className="space-y-5" aria-busy={saving}>
+        <fieldset disabled={saving} className="min-w-0 space-y-5">
         {/* Customer Section */}
         <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm space-y-4">
           <h3 className="text-sm font-semibold text-slate-900 border-b border-slate-100 pb-3">Data Customer</h3>
@@ -176,19 +187,24 @@ export default function NewOrderPage() {
           </div>
         </div>
 
+        </fieldset>
+        {error && <div role="alert" className="rounded-xl border border-red-200 bg-white p-4 text-sm text-red-600">{error}</div>}
         {/* Actions */}
-        <div className="flex justify-end gap-3">
+        <div className="flex flex-wrap justify-end gap-3">
           <Link
             href="/orders"
+            aria-disabled={saving}
+            onClick={event => { if (saving) event.preventDefault() }}
             className="rounded-xl border border-slate-200 bg-white px-5 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50 transition-colors"
           >
             Batal
           </Link>
           <button
             type="submit"
-            className="rounded-xl bg-brand-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-brand-700 transition-colors"
+            disabled={saving}
+            className="rounded-xl bg-brand-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-brand-700 transition-colors disabled:opacity-50"
           >
-            Simpan Order
+            {saving ? 'Menyimpan...' : 'Simpan Order'}
           </button>
         </div>
       </form>

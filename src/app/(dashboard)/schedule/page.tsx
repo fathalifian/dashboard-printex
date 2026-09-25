@@ -4,9 +4,11 @@ import { useEffect, useMemo, useRef, useState, type DragEvent } from 'react'
 import Link from 'next/link'
 import { OrderTimer } from '@/components/production-timers'
 import { AlertTriangle, Archive, Pencil, PlusCircle, Save, Trash2, X, ZoomIn, ZoomOut, Scan } from 'lucide-react'
+import StockShortcuts from '@/components/stock-shortcuts'
 import { formatDueDate, isOverdue, cn } from '@/lib/utils'
 import { canDragStage, canManageOrders, canMoveBetweenStages, normalizeRole } from '@/lib/access-control'
-import { archiveOrder, finishArchivedOrder, deleteOrder, moveOrderToStage, useProductionOrders, useOnlineConnection, canMoveOrder, type BoardStageId, type DeliveryMethod } from '@/lib/production-board'
+import { archiveOrder, finishArchivedOrder, deleteOrder, moveOrderToStage, saveOrderPhoto, errorMessage, useProductionOrders, useOnlineConnection, canMoveOrder, type BoardStageId, type DeliveryMethod } from '@/lib/production-board'
+import { droppedOrderPhoto, isFileDrop } from '@/lib/order-photo-drop'
 
 type StageId = BoardStageId
 type BoardOrder = { id: string; spkCode: string; customer: string; productionType: string; meter: number; customerType: string; dueAt: string; stage: StageId; deliveryMethod?: DeliveryMethod }
@@ -23,7 +25,7 @@ const STAGES: Array<{ id: StageId; label: string }> = [
 
 export default function ProductionBoardPage() {
   const sharedOrders = useProductionOrders()
-  const { profile } = useOnlineConnection()
+  const { profile, busy, state: connectionState } = useOnlineConnection()
   const role = profile?.role
   const manageOrders = canManageOrders(role)
   const isOperator = normalizeRole(role) === 'operator'
@@ -45,8 +47,10 @@ export default function ProductionBoardPage() {
   }, [])
   const [draggedId, setDraggedId] = useState<string | null>(null)
   const [dragOverStage, setDragOverStage] = useState<StageId | null>(null)
+  const [photoDropTarget, setPhotoDropTarget] = useState<string | null>(null)
+  const photoUploading = useRef(false)
   useEffect(() => {
-    const clearDrag = () => { setDraggedId(null); setDragOverStage(null) }
+    const clearDrag = () => { setDraggedId(null); setDragOverStage(null); setPhotoDropTarget(null) }
     const onKey = (event: KeyboardEvent) => { if (event.key === 'Escape') clearDrag() }
     window.addEventListener('dragend', clearDrag)
     window.addEventListener('drop', clearDrag)
@@ -91,10 +95,35 @@ export default function ProductionBoardPage() {
 
   function handleDrop(event: DragEvent<HTMLDivElement>, stage: StageId) {
     event.preventDefault()
+    if (isFileDrop(event.dataTransfer)) {
+      setPhotoDropTarget(null)
+      setNotice('Letakkan foto tepat pada kartu order yang dituju.')
+      return
+    }
     const orderId = event.dataTransfer.getData('text/plain') || draggedId
     if (orderId) void moveOrder(orderId, stage)
     setDraggedId(null)
     setDragOverStage(null)
+  }
+
+  function canUploadPhoto(order: BoardOrder) {
+    return manageOrders && order.stage !== 'archive' && connectionState === 'ready' && !busy && !photoUploading.current
+  }
+
+  async function dropPhoto(event: DragEvent<HTMLElement>, order: BoardOrder) {
+    if (!isFileDrop(event.dataTransfer)) return // Card movement still bubbles to its stage.
+    event.preventDefault(); event.stopPropagation(); setPhotoDropTarget(null)
+    if (!manageOrders) { setNotice('Hanya Owner/Admin yang dapat mengunggah foto order.'); return }
+    if (order.stage === 'archive') { setNotice('Foto order arsip tidak dapat diubah.'); return }
+    if (!canUploadPhoto(order)) { setNotice('Tunggu sinkronisasi selesai sebelum mengunggah foto.'); return }
+    try {
+      const file = droppedOrderPhoto(event.dataTransfer)
+      photoUploading.current = true
+      setNotice(`Mengoptimalkan dan menyimpan foto ${order.spkCode}...`)
+      await saveOrderPhoto(order.id, file)
+      setNotice(`Foto ${order.spkCode} tersimpan. Buka Detail Order untuk melihatnya.`)
+    } catch (error) { setNotice(errorMessage(error)) }
+    finally { photoUploading.current = false }
   }
 
   async function confirmDelete() {
@@ -103,7 +132,9 @@ export default function ProductionBoardPage() {
   }
 
   return (
-    <div className="flex min-h-full flex-col gap-5">
+    <div className="flex min-h-full flex-col gap-5"
+      onDragOver={event => { if (isFileDrop(event.dataTransfer)) { event.preventDefault(); event.dataTransfer.dropEffect = 'none' } }}
+      onDrop={event => { if (isFileDrop(event.dataTransfer)) { event.preventDefault(); setPhotoDropTarget(null); setNotice('Letakkan foto tepat pada kartu order yang dituju.') } }}>
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div role="group" aria-label="Zoom board produksi" className="board-zoom-controls flex flex-wrap items-center gap-1 rounded-xl border border-slate-200 bg-white p-1.5 shadow-sm">
           <button type="button" onClick={() => adjustZoom(zoomPercent - 10)} disabled={zoomPercent <= 10} aria-label="Perkecil board" title="Perkecil board" className="rounded-lg p-2 text-slate-600 hover:bg-slate-100 disabled:opacity-30"><ZoomOut className="h-4 w-4" /></button>
@@ -112,7 +143,8 @@ export default function ProductionBoardPage() {
           <button type="button" onClick={() => setManualZoom(1)} aria-label="Reset zoom ke 100 persen" title="Ukuran asli (100%)" className="min-w-12 rounded-lg px-2 py-2 text-xs font-semibold tabular-nums text-slate-600 hover:bg-slate-100">{zoomPercent}%</button>
           <button type="button" onClick={() => { setManualZoom(null); boardViewport.current?.scrollTo({ left: 0 }) }} aria-pressed={manualZoom === null} className={cn('inline-flex items-center gap-1.5 rounded-lg px-2.5 py-2 text-xs font-semibold', manualZoom === null ? 'bg-brand-50 text-brand-700' : 'text-slate-600 hover:bg-slate-100')}><Scan className="h-4 w-4" />Pas layar</button>
         </div>
-        {manageOrders && <div className="flex items-stretch gap-2">
+        <StockShortcuts />
+        {manageOrders && <div className="flex flex-wrap items-stretch gap-2">
           <Link href="/archives" className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700"><Archive className="h-4 w-4" /> Laporan Arsip</Link>
           <Link href="/orders/new" className="inline-flex items-center justify-center gap-2 rounded-xl bg-brand-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-brand-700"><PlusCircle className="h-4 w-4" /> Tambah Order</Link>
         </div>}
@@ -136,7 +168,7 @@ export default function ProductionBoardPage() {
                 </header>
 
                 <div
-                  onDragOver={(event) => { if (!allowedDrop(orders.find(order => order.id === draggedId), stage.id)) { event.dataTransfer.dropEffect = 'none'; return }; event.preventDefault(); event.dataTransfer.dropEffect = 'move'; setDragOverStage(stage.id) }}
+                  onDragOver={(event) => { if (isFileDrop(event.dataTransfer)) { event.preventDefault(); event.dataTransfer.dropEffect = 'none'; return }; if (!allowedDrop(orders.find(order => order.id === draggedId), stage.id)) { event.dataTransfer.dropEffect = 'none'; return }; event.preventDefault(); event.dataTransfer.dropEffect = 'move'; setDragOverStage(stage.id) }}
                   onDragLeave={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node)) setDragOverStage(null) }}
                   onDrop={(event) => handleDrop(event, stage.id)}
                   className="flex flex-1 flex-col gap-3 p-3"
@@ -147,11 +179,22 @@ export default function ProductionBoardPage() {
                     return (
                       <article
                         key={order.id}
+                        title={manageOrders && stage.id !== 'archive' ? `Seret foto ke kartu ${order.spkCode} untuk menambah atau mengganti foto order` : undefined}
                         draggable={movable}
+                        onDragOver={event => {
+                          if (!isFileDrop(event.dataTransfer)) return
+                          event.preventDefault(); event.stopPropagation()
+                          const allowed = canUploadPhoto(order)
+                          event.dataTransfer.dropEffect = allowed ? 'copy' : 'none'
+                          setPhotoDropTarget(allowed ? order.id : null)
+                        }}
+                        onDragLeave={event => { if (!event.currentTarget.contains(event.relatedTarget as Node)) setPhotoDropTarget(current => current === order.id ? null : current) }}
+                        onDrop={event => { void dropPhoto(event, order) }}
                         onDragStart={(event) => { if (!movable) { event.preventDefault(); return }; event.dataTransfer.effectAllowed = 'move'; event.dataTransfer.setData('text/plain', order.id); setDraggedId(order.id) }}
                         onDragEnd={() => { setDraggedId(null); setDragOverStage(null) }}
-                        className={cn('group relative select-none rounded-2xl border p-3.5 shadow-sm transition-shadow hover:shadow-md', movable ? 'cursor-grab active:cursor-grabbing' : 'cursor-default', 'board-card', overdue && 'board-card-overdue', draggedId === order.id && 'scale-95 ring-2 ring-brand-500')}
+                        className={cn('group relative select-none rounded-2xl border p-3.5 shadow-sm transition-shadow hover:shadow-md', movable ? 'cursor-grab active:cursor-grabbing' : 'cursor-default', 'board-card', overdue && 'board-card-overdue', draggedId === order.id && 'scale-95 ring-2 ring-brand-500', photoDropTarget === order.id && 'ring-2 ring-brand-500 ring-offset-2')}
                       >
+                        {photoDropTarget === order.id && <div className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center rounded-lg bg-white/90 p-3 text-center text-xs font-semibold text-brand-700">Lepaskan untuk menyimpan foto</div>}
                         <div className="flex items-start justify-between gap-2 pr-10">
                           <div className="flex min-w-0 items-center gap-1.5">
                             {manageOrders ? <Link draggable={false} href={`/orders/${order.id}?from=schedule`} className="whitespace-nowrap font-mono text-xs font-bold text-brand-700 hover:underline">{order.spkCode}</Link> : <span className="whitespace-nowrap font-mono text-xs font-bold text-slate-900">{order.spkCode}</span>}

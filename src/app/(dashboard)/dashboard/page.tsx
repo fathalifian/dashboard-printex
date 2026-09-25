@@ -3,8 +3,8 @@
 import Link from 'next/link'
 import { useState } from 'react'
 import { AlertTriangle, PlusCircle, Search } from 'lucide-react'
-import StatCard from '@/components/dashboard/stat-card'
 import ProductionFlow from '@/components/dashboard/production-flow'
+import DailyOutput from '@/components/dashboard/daily-output'
 import { StatusBadge } from '@/components/ui/badges'
 import { BOARD_STAGE_META, useProductionOrders, useOnlineConnection } from '@/lib/production-board'
 import { formatDueDate, isOverdue } from '@/lib/utils'
@@ -62,10 +62,6 @@ export default function DashboardPage() {
   const [stage, setStage] = useState<ProcessStage | 'all'>('all')
   const orders = useProductionOrders()
   const canViewDetails = canManageOrders(useOnlineConnection().profile?.role)
-  const newOrders = orders.filter((order) => order.current_step.code === 'ORDER_IN')
-  const inProgress = orders.filter((order) => order.order_state === 'active' && order.current_step.code !== 'ORDER_IN')
-  const completedOrders = orders.filter((order) => order.order_state === 'completed')
-  const overdueOrders = orders.filter((order) => isOverdue(order.due_at, order.order_state))
   const query = search.trim().toLowerCase()
   const filteredOrders = orders.filter((order) => !query || order.spk_code.toLowerCase().includes(query) || order.customer.name.toLowerCase().includes(query))
   
@@ -78,12 +74,7 @@ export default function DashboardPage() {
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-3"><div><h2 className="text-2xl font-semibold tracking-tight text-slate-900">Dashboard produksi</h2><p className="mt-1 text-sm text-slate-500">Pantau progres dan tenggat dari {orders.length} order di board.</p></div>{canViewDetails && <Link href="/orders/new" className="inline-flex items-center gap-2 rounded-xl bg-brand-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-brand-700"><PlusCircle className="h-4 w-4" /> Tambah Order</Link>}</div>
-      <div className="grid grid-cols-2 overflow-hidden rounded-lg border border-slate-200 bg-white lg:grid-cols-4">
-        <StatCard title="Order Baru" value={newOrders.length} />
-        <StatCard title="Sedang Diproses" value={inProgress.length} />
-        <StatCard title="Order Selesai" value={completedOrders.length} />
-        <StatCard title="Terlambat" value={overdueOrders.length} attention />
-      </div>
+      <DailyOutput />
       <ProductionFlow selectedStage={stage} onSelectStage={setStage} />
       <div className="relative"><Search className="pointer-events-none absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-slate-400" /><input suppressHydrationWarning type="search" aria-label="Cari SPK atau nama customer" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Cari SPK / Nama Customer..." className="block w-full rounded-xl border border-slate-200 bg-white py-3 pl-11 pr-4 text-sm text-slate-900 placeholder:text-slate-400 focus:border-brand-500 focus:outline-none focus:ring-1 focus:ring-brand-500" /></div>
       <div id="dashboard-orders" className="scroll-mt-20">
