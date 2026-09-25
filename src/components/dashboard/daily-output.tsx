@@ -34,7 +34,7 @@ export default function DailyOutput() {
         {([
           { key: 'dtf', title: 'Output DTF', color: 'bg-violet-50 border-violet-100' },
           { key: 'sublim', title: 'Output Sublim', color: 'bg-amber-50 border-amber-100' },
-        ] as const).map(category => <div key={category.key} className={`rounded-xl border p-5 ${category.color}`}>
+        ] as const).map(category => <div key={category.key} data-output={category.key} className={`daily-output-card rounded-xl border p-5 ${category.color}`}>
           <h3 className="text-sm font-semibold text-slate-900">{category.title}</h3>
           <p className="mt-3 text-3xl font-semibold tracking-tight text-slate-900">{number.format(totals[category.key].meter)} <span className="text-sm font-medium text-slate-600">meter</span></p>
           <p className="mt-1 text-sm text-slate-600">{totals[category.key].count} order selesai print</p>
