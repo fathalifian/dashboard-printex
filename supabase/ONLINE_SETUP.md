@@ -18,9 +18,9 @@ Jalankan `migrations/0016_photo_cleanup.sql` setelah 0015 untuk mengaktifkan pem
 - Setelah order dihapus permanen, file fotonya langsung dibersihkan melalui Storage API. Penghapusan atau penggantian foto juga memasukkan lokasi lama ke antrean database dalam transaksi yang sama.
 - Unggahan gagal dibersihkan segera jika server memastikan file tidak dipakai order mana pun. Jika respons simpan hilang tetapi transaksi berhasil, foto yang tertaut tetap aman.
 - Saat Owner/Admin aktif membuka aplikasi, pembersihan berjalan setiap sekitar 5 menit, maksimal 50 file per pemeriksaan. Ini mengulang penghapusan yang gagal dan memungut file tidak tertaut berumur lebih dari 24 jam (misalnya tab ditutup saat unggah). Saat semua aplikasi ditutup, antrean tetap tersimpan dan dilanjutkan saat Owner/Admin kembali online.
-- RPC menandai file sebelum penghapusan; file yang ditandai tidak boleh ditautkan kembali. Storage API menghapus file sebenarnya, bukan sekadar baris metadata. Foto yang masih tertaut, termasuk foto arsip, tidak dibersihkan. Baris antrean yang selesai dibuang setelah satu hari.
+- RPC menandai file sebelum penghapusan; file yang ditandai tidak boleh ditautkan kembali. Storage API menghapus file sebenarnya, bukan sekadar baris metadata. Foto yang masih tertaut tidak dibersihkan. Baris antrean yang selesai dibuang setelah satu hari.
 
-Migrasi tidak mengompresi atau menghapus foto lama yang masih dipakai order. Tidak ada masa kedaluwarsa untuk foto arsip.
+Migrasi tidak mengompresi atau menghapus foto lama yang masih dipakai order. Aturan penghapusan foto saat finalisasi arsip dijelaskan di bawah.
 
 1. Database baru: jalankan migrasi 0001 sampai 0006 berurutan di Supabase SQL Editor. Jika tabel sudah ada, jangan ulangi migrasi awal.
 2. Jalankan `SETUP_ONLINE.sql` (setup online dan penghapusan endpoint impor lokal, aman dijalankan ulang).
@@ -93,3 +93,26 @@ Verifikasi setelah migrasi: masuk sebagai Operator; pastikan menu hanya Dashboar
 Database yang sudah ada: jalankan `migrations/0014_customer_service.sql` melalui Supabase SQL Editor setelah migrasi 0013. Setup baru sudah menyertakannya di `SETUP_ONLINE.sql`. Migrasi ini tidak mengubah order atau nomor yang sudah tersimpan.
 
 Login sebagai Admin atau Owner, buka **Pengaturan > WhatsApp Customer Service**, isi nomor (08 atau +62), lalu simpan. Nomor tersimpan untuk semua pengguna; sidebar diperbarui langsung pada perangkat penyimpan, ketika tab lain kembali aktif, atau dalam 60 detik pada tab aktif. Kosongkan nomor untuk menonaktifkan tautan. Operator hanya dapat membaca kontak; RLS database dan server action menolak perubahannya.
+
+
+## Hapus foto saat Simpan ke Laporan Arsip
+
+Jalankan `migrations/0019_archive_photo_cleanup.sql` setelah migrasi 0015 dan 0016.
+Saat Owner/Admin menekan Simpan ke Laporan Arsip (aksi finish), database mengosongkan photo_path
+dan memasukkan file lama ke antrean pembersihan dalam transaksi yang sama. Konfirmasi Diterima
+saja masih mempertahankan foto selama order ada di board. Data order dan riwayat tetap tersimpan.
+
+Aplikasi langsung mencoba menghapus file melalui Storage API. Jika gagal atau browser tertutup,
+antrean tetap tersimpan dan dicoba kembali saat aplikasi Owner/Admin aktif (pemeriksaan setiap
+5 menit melalui sinkronisasi). Tidak ada worker terjadwal ketika semua aplikasi ditutup.
+Foto yang sudah dihapus tidak dapat dipulihkan melalui aplikasi.
+Aturan berlaku untuk finalisasi setelah migrasi; foto arsip lama tidak dihapus massal.
+
+Jika muncul error printex_queue_old_photo() does not exist, jalankan seluruh isi
+supabase/REPAIR_ARCHIVE_PHOTOS.sql di SQL Editor. File ini memasang dependensi
+0015, 0016, dan 0019 dalam satu transaksi dan aman dijalankan ulang. Tidak menghapus
+foto arsip lama atau data order. Aplikasi terbaru tetap diperlukan untuk penghapusan
+file langsung melalui Storage API saat finalisasi.
+
+## No. WhatsApp customer opsional
+Jalankan migrations/0020_optional_customer_phone.sql untuk menyimpan nomor dari Tambah Order. Kolom boleh kosong; nomor lama tetap dipertahankan ketika edit tanpa mengirim customerPhone.

@@ -1,6 +1,7 @@
 export const PROCESS_STAGES = ['incoming', 'design', 'design_done', 'printing', 'press', 'done', 'archive'] as const
 export type ProcessStage = typeof PROCESS_STAGES[number]
 export type ProcessEvent = {
+  branchId?: string
   id: string
   orderId: string
   spkCode: string

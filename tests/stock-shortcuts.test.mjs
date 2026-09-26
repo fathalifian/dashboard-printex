@@ -25,12 +25,13 @@ function actions(role, { active = true, signedIn = true, conflict = false } = {}
   let saved = structuredClone(shortcuts.DEFAULT_STOCK_SHORTCUTS)
   let writes = 0
   const client = {
+    rpc: async () => ({ data: { branches_enabled: false } }),
     auth: { getUser: async () => ({ data: { user: signedIn ? { id: 'user' } : null } }) },
     from(table) {
       if (table === 'profiles') return { select: () => ({ eq: () => ({ single: async () => ({ data: { role, is_active: active } }) }) }) }
       assert.equal(table, 'stock_shortcuts')
       return {
-        select: () => ({ order: async () => ({ data: saved }) }),
+        select: () => ({ order: async () => ({ data: saved }), eq: (_, id) => ({ maybeSingle: async () => ({ data: saved.find(row => row.id === id) }) }) }),
         update(value) {
           writes++
           const filters = {}
@@ -46,11 +47,11 @@ function actions(role, { active = true, signedIn = true, conflict = false } = {}
       }
     },
   }
-  return { ...compile('src/app/(dashboard)/schedule/shortcut-actions.ts', { '@/lib/supabase/server': { createClient: async () => client }, '@/lib/access-control': access, '@/lib/stock-shortcuts': shortcuts }), writes: () => writes }
+  return { ...compile('src/app/(dashboard)/schedule/shortcut-actions.ts', { '@/lib/branch-settings': compile('src/lib/branch-settings.ts', { '@/lib/supabase/server': { createClient: async () => client }, '@/lib/access-control': access }), '@/lib/stock-shortcuts': shortcuts }), writes: () => writes }
 }
 
 test('active Owner and Admin can persist names and links; Operator can only read', async () => {
-  for (const role of ['owner', 'admin']) {
+  for (const role of ['central_owner', 'owner', 'admin']) {
     const api = actions(role)
     const result = await api.saveStockShortcut(input)
     assert.equal(result.error, '')
@@ -74,7 +75,7 @@ test('invalid inputs and concurrent edits cannot silently overwrite saved shortc
   const admin = actions('admin')
   assert.ok((await admin.saveStockShortcut({ ...input, url: 'javascript:alert(1)' })).error)
   assert.equal(admin.writes(), 0)
-  assert.match((await actions('admin', { conflict: true }).saveStockShortcut(input)).error, /berubah/)
+  assert.match((await actions('admin', { conflict: true }).saveStockShortcut(input)).error, /diubah/)
 })
 
 test('all roles get arrow-free links; Owner and Admin see edit buttons', () => {
@@ -85,7 +86,7 @@ test('all roles get arrow-free links; Owner and Admin see edit buttons', () => {
   }
   for (const role of ['owner', 'admin', 'operator']) {
     const { default: Shortcuts } = compile('src/components/stock-shortcuts.tsx', {
-      react: { useState: value => [value, () => {}], useRef: value => ({ current: value }), useEffect() {} },
+      react: { useState: value => [Array.isArray(value) ? shortcuts.DEFAULT_STOCK_SHORTCUTS : value, () => {}], useRef: value => ({ current: value }), useEffect() {} },
       'react/jsx-runtime': { jsx, jsxs: jsx }, 'lucide-react': { Sheet: 'Sheet', Pencil: 'Pencil', X: 'X' },
       '@/lib/production-board': { useOnlineConnection: () => ({ profile: { id: 'user', role } }) },
       '@/lib/access-control': access, '@/lib/stock-shortcuts': shortcuts,
@@ -98,4 +99,36 @@ test('all roles get arrow-free links; Owner and Admin see edit buttons', () => {
     assert.equal(all(tree, node => node.type === 'button').length, role === 'admin' || role === 'owner' ? 2 : 0)
     assert.equal(all(tree, node => node.type === 'ExternalLink').length, 0)
   }
+})
+
+test('stock loads through one branch-filtered read without server action requests', async () => {
+  const effects = []
+  const reads = []
+  const updates = []
+  let queries = 0
+  const branchId = '22222222-2222-4222-8222-222222222222'
+  const previousWindow = globalThis.window
+  globalThis.window = { setInterval: () => 1, clearInterval() {}, addEventListener() {}, removeEventListener() {} }
+  try {
+    const { default: Shortcuts } = compile('src/components/stock-shortcuts.tsx', {
+      react: { useState: value => [value, value => updates.push(value)], useRef: value => ({ current: value }), useEffect: fn => effects.push(fn) },
+      'react/jsx-runtime': { jsx: () => null, jsxs: () => null },
+      'lucide-react': {},
+      '@/lib/production-board': { useOnlineConnection: () => ({ profile: { id: 'user', role: 'owner' }, branchId, branches: [{ id: branchId }] }) },
+      '@/lib/access-control': access, '@/lib/stock-shortcuts': shortcuts,
+      '@/app/(dashboard)/schedule/shortcut-actions': {},
+      '@/lib/supabase/client': { createClient: () => ({ from(table) {
+        reads.push(table)
+        const query = { select: () => query, eq: (key, value) => { reads.push([key, value]); return query }, order: async () => { queries++; return { data: shortcuts.DEFAULT_STOCK_SHORTCUTS } } }
+        return query
+      } }) },
+    })
+    Shortcuts()
+    const cleanup = effects[0]()
+    await new Promise(resolve => setImmediate(resolve))
+    assert.equal(queries, 1)
+    assert.deepEqual(reads, ['branch_stock_shortcuts', ['branch_id', branchId]])
+    assert.ok(updates.includes(true))
+    cleanup()
+  } finally { globalThis.window = previousWindow }
 })

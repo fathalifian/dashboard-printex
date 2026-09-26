@@ -1,14 +1,14 @@
 import type { ProcessStage } from './process-metrics'
 
 export const ACCESS_SCHEMA_VERSION = 8
-export const ROLE_LABELS = { owner: 'Owner', admin: 'Admin', operator: 'Operator' } as const
+export const ROLE_LABELS = { central_owner: 'Owner Pusat', owner: 'Owner Cabang', admin: 'Admin', operator: 'Operator' } as const
 export type Role = keyof typeof ROLE_LABELS
 
 // Read legacy names during migration; new accounts always use canonical roles.
 export function normalizeRole(role: unknown): Role | null {
   if (role === 'superadmin') return 'owner'
   if (role === 'staff') return 'operator'
-  return role === 'owner' || role === 'admin' || role === 'operator' ? role : null
+  return role === 'central_owner' || role === 'owner' || role === 'admin' || role === 'operator' ? role : null
 }
 export function roleLabel(role: unknown) {
   const normalized = normalizeRole(role)
@@ -16,9 +16,9 @@ export function roleLabel(role: unknown) {
 }
 export function canManageOrders(role: unknown) {
   const normalized = normalizeRole(role)
-  return normalized === 'owner' || normalized === 'admin'
+  return normalized === 'central_owner' || normalized === 'owner' || normalized === 'admin'
 }
-export function canManageUsers(role: unknown) { return normalizeRole(role) === 'owner' }
+export function canManageUsers(role: unknown) { return normalizeRole(role) === 'central_owner' || normalizeRole(role) === 'owner' }
 
 export const OPERATOR_STAGES: readonly ProcessStage[] = ['design_done', 'printing', 'press', 'done']
 export function canDragStage(role: unknown, stage: ProcessStage) {
@@ -33,6 +33,6 @@ export function canAccessPage(role: unknown, pathname: string) {
   if (!normalized) return false
   const path = pathname.replace(/\/+$/, '') || '/'
   if (normalized === 'operator') return ['/', '/dashboard', '/schedule'].includes(path)
-  if (path === '/settings/users' || path.startsWith('/settings/users/')) return normalized === 'owner'
+  if (path === '/settings/users' || path.startsWith('/settings/users/')) return normalized === 'central_owner' || normalized === 'owner'
   return true
 }

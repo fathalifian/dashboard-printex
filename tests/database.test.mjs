@@ -331,6 +331,15 @@ test('optional photos enforce private storage, ownership roles, concurrency, and
   await db.exec(migration); await db.exec(migration)
   await db.exec(readFileSync('supabase/migrations/0016_photo_cleanup.sql', 'utf8'))
   assert.equal((await row()).photo_path, replacement)
+  await mutate('finish', {}, (await row()).version, orderId)
+  assert.equal((await row()).photo_path, null)
+  assert.ok((await row()).archive_finalized_at)
+  const finishedVersion = (await row()).version
+  await mutate('finish', {}, finishedVersion, orderId)
+  assert.equal((await row()).version, finishedVersion)
+  assert.deepEqual((await db.query('SELECT * FROM printex_claim_photo_cleanup($1)', [replacement])).rows, [{ path: replacement }])
+  assert.equal((await db.query('DELETE FROM storage.objects WHERE name=$1 RETURNING name', [replacement])).rows.length, 1)
+  assert.ok((await db.query('SELECT count(*)::int AS n FROM process_history WHERE order_id=$1', [orderId])).rows[0].n >= historyBefore)
   assert.equal((await db.query("SELECT public FROM storage.buckets WHERE id='order-photos'")).rows[0].public, false)
   await db.query('UPDATE profiles SET is_active=false WHERE id=$1', [operator])
   await db.exec('SET ROLE authenticated'); await user(operator)
@@ -429,6 +438,87 @@ test('shared stock shortcuts persist Owner/Admin edits while RLS denies Operator
   await db.exec('RESET ROLE; SET ROLE anon')
   await assert.rejects(read, /permission denied/)
   await db.exec('RESET ROLE')
+})
+
+test('archive photo repair restores missing dependencies and is safe to rerun', async () => {
+  await db.exec('RESET ROLE')
+  const before = (await db.query('SELECT * FROM orders ORDER BY id')).rows
+  const historyBefore = (await db.query('SELECT * FROM process_history ORDER BY id')).rows
+  await db.exec('DROP FUNCTION public.printex_queue_old_photo() CASCADE')
+  const repair = readFileSync('supabase/REPAIR_ARCHIVE_PHOTOS.sql', 'utf8')
+  await db.exec(repair)
+  await db.exec(repair)
+  assert.deepEqual((await db.query('SELECT * FROM orders ORDER BY id')).rows, before)
+  assert.deepEqual((await db.query('SELECT * FROM process_history ORDER BY id')).rows, historyBefore)
+  const owner = 'aaaaaaaa-1111-4000-8000-000000000001'
+  const orderId = 'eeeeeeee-2222-4000-8000-000000000001'
+  const path = orderId + '/eeeeeeee-3333-4000-8000-000000000001.webp'
+  await db.query("SELECT set_config('request.jwt.claim.sub',$1,false)", [owner])
+  await db.exec('SET ROLE authenticated')
+  await mutate('create', input, null, orderId)
+  await db.query("INSERT INTO storage.objects(bucket_id,name) VALUES('order-photos',$1)", [path])
+  await db.query('SELECT printex_set_order_photo($1,1,$2)', [orderId,path])
+  const row = async () => (await db.query('SELECT * FROM orders WHERE id=$1', [orderId])).rows[0]
+  for (const code of ['DESIGN_DONE','PRINTING','DONE']) await mutate('move', {code}, (await row()).version, orderId)
+  await mutate('archive', {deliveryMethod:'pickup'}, (await row()).version, orderId)
+  assert.equal((await row()).photo_path, path)
+  await mutate('finish', {}, (await row()).version, orderId)
+  assert.equal((await row()).photo_path, null)
+  assert.deepEqual((await db.query('SELECT * FROM printex_claim_photo_cleanup($1)',[path])).rows, [{path}])
+  await db.exec('RESET ROLE')
+})
+
+test('optional WhatsApp persists, supports empty values, and survives edits from older clients', async () => {
+  await db.exec('RESET ROLE')
+  await db.exec(readFileSync('supabase/migrations/0020_optional_customer_phone.sql', 'utf8'))
+  await db.query("SELECT set_config('request.jwt.claim.sub',$1,false)", [admin])
+  await db.exec('SET ROLE authenticated')
+  const orderId = 'ffffffff-2222-4000-8000-000000000001'
+  await mutate('create', {...input, customerPhone:' 081234567890 '}, null, orderId)
+  const read = async () => (await db.query('SELECT o.version,o.spk_code,c.phone FROM orders o JOIN customers c ON c.id=o.customer_id WHERE o.id=$1',[orderId])).rows[0]
+  assert.equal((await read()).phone, '081234567890')
+  let r=await read()
+  await mutate('edit', {...input,spkCode:r.spk_code}, r.version, orderId)
+  assert.equal((await read()).phone, '081234567890')
+  r=await read()
+  await mutate('edit', {...input,spkCode:r.spk_code,customerPhone:''}, r.version, orderId)
+  assert.equal((await read()).phone, null)
+  await db.exec('RESET ROLE')
+})
+
+
+test('incremental cursor records deletes, denies anonymous reads and rolls back with failed transactions',async()=>{
+ await db.exec('RESET ROLE')
+ await db.query("SELECT set_config('request.jwt.claim.sub',$1,false)",[admin])
+ await db.query("UPDATE profiles SET role='owner',is_active=true WHERE id=$1",[admin])
+ await db.exec('SET ROLE authenticated')
+ const start=(await db.query('SELECT printex_sync_changes(NULL,NULL) AS s')).rows[0].s
+ await db.exec('RESET ROLE')
+ await db.exec("BEGIN; INSERT INTO customers(id,name) VALUES('eeeeeeee-0000-4000-8000-000000000001','Rollback'); ROLLBACK;")
+ const afterRollback=(await db.query('SELECT printex_sync_changes(NULL,NULL) AS s')).rows[0].s
+ assert.equal(afterRollback.cursor,start.cursor)
+ await db.exec("INSERT INTO customers(id,name) VALUES('eeeeeeee-0000-4000-8000-000000000001','Temporary'); DELETE FROM customers WHERE id='eeeeeeee-0000-4000-8000-000000000001';")
+ const delta=(await db.query('SELECT printex_sync_changes($1,NULL) AS s',[start.cursor])).rows[0].s
+ assert.ok(delta.changes.some(change=>change.table==='customers'&&change.id==='eeeeeeee-0000-4000-8000-000000000001'))
+ await db.exec("INSERT INTO customers(id,name) SELECT gen_random_uuid(),'Batch sync' FROM generate_series(1,2001)")
+ const bulk=(await db.query('SELECT printex_sync_changes($1,NULL) AS s',[delta.cursor])).rows[0].s
+ assert.equal(bulk.reset,true)
+ assert.deepEqual(bulk.changes,[])
+ await db.exec('SET ROLE anon')
+ await assert.rejects(()=>db.query('SELECT printex_sync_changes(NULL,NULL)'),/permission denied/)
+ await db.exec('RESET ROLE')
+})
+
+test('official branch migrations install on a legacy database without rewriting order contents',async()=>{
+ await db.exec('RESET ROLE')
+ // Real Supabase Auth includes this metadata column.
+ await db.exec("ALTER TABLE auth.users ADD COLUMN IF NOT EXISTS raw_app_meta_data jsonb DEFAULT '{}'")
+ const before=(await db.query('SELECT id,spk_code,version,notes FROM orders ORDER BY id')).rows
+ await db.exec("SET printex.legacy_branch='Salatiga'")
+ for(const file of readdirSync('supabase/branch-migrations').filter(file=>file.endsWith('.sql')).sort()) await db.exec(readFileSync('supabase/branch-migrations/'+file,'utf8'))
+ assert.deepEqual((await db.query('SELECT id,spk_code,version,notes FROM orders ORDER BY id')).rows,before)
+ assert.ok((await db.query('SELECT branch_id FROM orders')).rows.every(row=>row.branch_id==='11111111-1111-4111-8111-111111111111'))
+ assert.equal((await db.query('SELECT * FROM branch_stock_shortcuts')).rows.length,4)
 })
 
 after(async()=>{await db.close()})

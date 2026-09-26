@@ -1,36 +1,27 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Printex Dashboard
 
-## Getting Started
+Dashboard internal Next.js untuk order, produksi, laporan, dan operasional cabang. Halaman privat dilindungi login dan `noindex`.
 
-First, run the development server:
+## Pengembangan
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
-```
+Gunakan Node.js 22 dan `npm ci`. Buat `.env.local` berisi `NEXT_PUBLIC_SUPABASE_URL` dan `NEXT_PUBLIC_SUPABASE_ANON_KEY` (atau `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`). Pengelolaan akun membutuhkan `SUPABASE_SECRET_KEY` atau `SUPABASE_SERVICE_ROLE_KEY` pada server saja. Jangan menaruh secret pada variabel `NEXT_PUBLIC_*` atau commit berkas kredensial.
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Jalankan `npm run dev`, lalu buka `http://localhost:3000`.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Database
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+Lihat [migrasi cabang produksi](supabase/branch-migrations/README.md). Untuk cabang yang sudah aktif: `npm run db:branch-upgrade -- --existing`, tinjau `supabase/UPGRADE_BRANCHES.sql`, lalu jalankan di Supabase SQL Editor. Perintah generator hanya menulis file lokal.
 
-## Learn More
+## Pemeriksaan sebelum deploy
 
-To learn more about Next.js, take a look at the following resources:
+- `npm run lint`
+- `npm run typecheck`
+- `npm test`
+- `npm run build`
+- `npm run check` menjalankan semuanya berurutan.
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+Tes browser membutuhkan Chrome lokal atau `npx playwright install chromium`. CI GitHub Actions memasang Chromium beserta dependensinya, memakai Node.js 22, menjalankan seluruh pemeriksaan pada push/pull request, dan tidak membutuhkan kredensial produksi. Aktifkan required status check pada aturan branch di GitHub jika ingin memblokir merge yang gagal.
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+## Operasi
 
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+Jalankan `npm start` setelah build. Error halaman menyediakan Coba lagi; error koneksi setelah sinkronisasi awal mencoba mengambil ulang data tanpa menghapus formulir. Perpindahan tahap pada board menggunakan drag-and-drop sesuai hak akses pengguna. Riwayat lengkap dipertahankan untuk perhitungan laporan; sinkronisasi setelah pemuatan pertama hanya mengambil perubahan setelah migrasi 0021.

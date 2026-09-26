@@ -5,8 +5,12 @@ import { runInNewContext } from 'node:vm'
 import ts from 'typescript'
 
 const codes=['ORDER_IN','DESIGN','DESIGN_DONE','PRINTING','PRESS','DONE','ARCHIVE']
-function backend() {
+function backend(pilot = false, incremental = false) {
   const state={orders:[],customers:[],production_steps:codes.map((code,index)=>({id:String(index),code})),process_history:[],profiles:[{id:'user',full_name:'Admin',role:'owner',is_active:true}]}
+  const branches=[{id:'salatiga',name:'Salatiga'},{id:'semarang',name:'Semarang'}]
+  if(pilot) state.profiles[0].role='central_owner'
+  let revision=0
+  const seen=new Map(), changes=new Map()
   const subscriptions=[]
   const photos = new Map()
   const emit=()=>subscriptions.forEach(fn=>fn())
@@ -21,14 +25,33 @@ function backend() {
     auth:{getUser:async()=>({data:{user:{id:'user'}}})},
     from(table) {
       return {select() {
+        let branch, ids, after
         return {
-          eq() {return {maybeSingle:async()=>({data:state.profiles[0]})}},
-          order() {return {range:async(start,end)=>({data:structuredClone(state[table].slice(start,end+1))})}},
+          eq(key,value) {
+            if(key==='branch_id'){branch=value;return this}
+            return {maybeSingle:async()=>({data:state.profiles[0]})}
+          },
+          in(_key,value) {ids=value;return this},
+          gt(_key,value) {after=value;return this},
+          order() {return {limit:async(limit)=>({data:structuredClone(state[table].filter(row=>(!branch||row.branch_id===branch)&&(!ids||ids.includes(row.id))&&(!after||row.id>after)).sort((a,b)=>a.id.localeCompare(b.id)).slice(0,limit))})}},
         }
       }}
     },
     async rpc(name,args){
-      if(name==='printex_online_status')return {data:{schema_version:8,realtime_tables:Object.keys(state)}}
+      if(name==='printex_sync_changes') {
+        if(!incremental) return {error:{code:'PGRST202'}}
+        const current=new Map()
+        for(const table of ['orders','customers','production_steps','process_history']) for(const row of state[table]) {
+          const key=table+':'+row.id, value=JSON.stringify(row)
+          current.set(key,value)
+          if(seen.get(key)!==value) changes.set(key,{table,id:row.id,revision:++revision,branch:row.branch_id})
+        }
+        for(const [key,value] of seen) if(!current.has(key)) {const row=JSON.parse(value);changes.set(key,{table:key.split(':')[0],id:row.id,revision:++revision,branch:row.branch_id})}
+        seen.clear();for(const [key,value] of current)seen.set(key,value)
+        return {data:{cursor:String(revision),changes:args.p_after===null?[]:[...changes.values()].filter(change=>change.revision>Number(args.p_after)&&(!args.p_branch||change.branch===args.p_branch||change.table==='production_steps'))}}
+      }
+      if(name==='printex_online_status')return {data:{schema_version:8,branches_enabled:pilot,realtime_tables:Object.keys(state)}}
+      if(name==='printex_branch_context')return {data:{branches,central:state.profiles[0].role==='central_owner',branchId:state.profiles[0].branch_id}}
       if (name === 'printex_claim_photo_cleanup') return { data: [...photos.keys()].filter(path => (!args.p_path || args.p_path === path) && !state.orders.some(order => order.photo_path === path)).map(path => ({ path })) }
       const row=state.orders.find(row=>row.id===args.p_order_id)
       if (name === 'printex_set_order_photo') {
@@ -36,11 +59,12 @@ function backend() {
         row.photo_path = args.p_path; row.version++; emit(); return { error: null }
       }
       if(args.p_action==='create'){
-        state.customers.push({id:'customer',name:args.p_data.customerName})
-        state.orders.push({id:args.p_order_id,spk_code:'SPK-1100',customer_id:'customer',current_step_id:'0',production_type:'DTF',meter:1,customer_type:'regular',order_date:'2026-09-07',due_at:'2026-09-08',created_at:'2026-09-07T00:00:00Z',version:1})
+        state.customers.push({id:'customer',branch_id:args.p_data.branchId,name:args.p_data.customerName})
+        state.orders.push({id:args.p_order_id,branch_id:args.p_data.branchId,spk_code:'SPK-1100',customer_id:'customer',current_step_id:'0',production_type:'DTF',meter:1,customer_type:'regular',order_date:'2026-09-07',due_at:'2026-09-08',created_at:'2026-09-07T00:00:00Z',version:1})
       }else{
         if(row.version!==args.p_expected_version)return {error:{message:'Order sudah diubah perangkat lain',code:'40001'}}
         if (args.p_action === 'delete') state.orders.splice(state.orders.indexOf(row), 1)
+        else if (args.p_action === 'finish') { row.archive_finalized_at = '2026-09-25T12:00:00Z'; row.photo_path = null; row.version++ }
         else { row.current_step_id=String(codes.indexOf(args.p_data.code));row.version++ }
       }
       emit();return {data:args.p_order_id}
@@ -202,3 +226,98 @@ test('a burst of realtime notifications shares one snapshot refresh', async () =
   await new Promise(resolve => setTimeout(resolve, 350));
   assert.equal(snapshots, 1);
 });
+
+
+test('finalizing archives removes photos and retries failed storage deletion without losing the order', async () => {
+  for (const failDelete of [false, true]) {
+    const api = backend(), a = device(api.client)
+    a.board.useOnlineConnection()
+    await waitFor(() => a.board.useOnlineConnection().state === 'ready')
+    await a.board.addOrder({ customerName: 'Archive', productionType: 'DTF', meter: 1, customerType: 'regular', orderDate: '2026-09-25', dueDate: '2026-09-26', notes: '' }, 'archive-photo')
+    await a.board.saveOrderPhoto('archive-photo', { type: 'image/png', size: 100 })
+    api.state.orders[0].current_step_id = '6'
+    api.state.orders[0].archived_at = '2026-09-25T11:00:00Z'
+    await a.board.refreshOnlineData()
+    assert.equal(api.photos.size, 1)
+    const from = api.client.storage.from
+    if (failDelete) api.client.storage.from = () => ({ remove: async () => ({ error: { message: 'Offline' } }) })
+    await a.board.finishArchivedOrder('archive-photo')
+    assert.equal(a.board.useAllOrders().length, 1)
+    assert.equal(a.board.useAllOrders()[0].photo_path, null)
+    assert.equal(a.board.useProductionOrders().length, 0)
+    assert.equal(api.photos.size, failDelete ? 1 : 0)
+    api.client.storage.from = from
+    await a.board.cleanupOrderPhotos()
+    assert.equal(api.photos.size, 0)
+  }
+})
+
+
+test('central branch switching scopes fetched orders and creation requires a selected branch',async()=>{
+ const api=backend(true), a=device(api.client)
+ a.board.useOnlineConnection()
+ await waitFor(()=>a.board.useOnlineConnection().state==='ready')
+ assert.equal(a.board.useOnlineConnection().central,true)
+ const input={customerName:'Cabang',productionType:'DTF',meter:10,customerType:'regular',orderDate:'2026-09-25',dueDate:'2026-09-26',notes:''}
+ await assert.rejects(()=>a.board.addOrder(input,'a'),/Pilih satu cabang/)
+ await a.board.selectBranch('salatiga')
+ await a.board.addOrder(input,'a')
+ await a.board.selectBranch('semarang')
+ assert.equal(a.board.useAllOrders().length,0)
+ await a.board.addOrder(input,'b')
+ assert.equal(a.board.useAllOrders()[0].branch_id,'semarang')
+ await a.board.selectBranch(null)
+ assert.equal(a.board.useAllOrders().length,2)
+ await a.board.selectBranch('salatiga')
+ assert.deepEqual(Array.from(a.board.useAllOrders(),o=>o.id),['a'])
+})
+
+test('incremental sync skips unchanged tables and merges edits, deletions and branch switches',async()=>{
+ const api=backend(true,true),a=device(api.client),reads=[]
+ const from=api.client.from
+ api.client.from=table=>{reads.push(table);return from(table)}
+ a.board.useOnlineConnection()
+ await waitFor(()=>a.board.useOnlineConnection().state==='ready')
+ await a.board.selectBranch('salatiga')
+ const input={customerName:'Delta',productionType:'DTF',meter:1,customerType:'regular',orderDate:'2026-09-25',dueDate:'2026-09-26',notes:''}
+ await a.board.addOrder(input,'delta')
+ reads.length=0
+ await a.board.refreshOnlineData()
+ assert.deepEqual(reads,['profiles'])
+ api.state.orders[0].meter=25
+ api.state.orders[0].version++
+ reads.length=0
+ await a.board.refreshOnlineData()
+ assert.equal(a.board.useAllOrders()[0].meter,25)
+ assert.deepEqual(reads,['profiles','orders'])
+ await a.board.selectBranch('semarang')
+ assert.equal(a.board.useAllOrders().length,0)
+ await a.board.selectBranch('salatiga')
+ assert.equal(a.board.useAllOrders()[0].meter,25)
+ await a.board.deleteOrder('delta')
+ assert.equal(a.board.useAllOrders().length,0)
+})
+
+test('failed incremental read does not advance cursor and retry recovers changes',async()=>{
+ const api=backend(false,true),a=device(api.client)
+ a.board.useOnlineConnection()
+ await waitFor(()=>a.board.useOnlineConnection().state==='ready')
+ await a.board.addOrder({customerName:'Retry',productionType:'DTF',meter:1,customerType:'regular',orderDate:'2026-09-25',dueDate:'2026-09-26',notes:''},'retry')
+ api.state.orders[0].meter=42
+ const from=api.client.from
+ api.client.from=table=>table==='orders'?{select(){throw new Error('Network failed')}}:from(table)
+ await assert.rejects(()=>a.board.refreshOnlineData(),/Network/)
+ assert.equal(a.board.useOnlineConnection().state,'error')
+ api.client.from=from
+ await a.board.refreshOnlineData()
+ assert.equal(a.board.useAllOrders()[0].meter,42)
+})
+
+test('initial keyset pagination loads more than 1000 rows without losing boundary rows',async()=>{
+ const api=backend(false,true),a=device(api.client)
+ for(let i=0;i<1105;i++) api.state.orders.push({id:String(i).padStart(6,'0'),spk_code:'SPK-'+i,current_step_id:'0',version:1,production_type:'DTF',meter:1})
+ a.board.useOnlineConnection()
+ await waitFor(()=>a.board.useOnlineConnection().state==='ready')
+ assert.equal(a.board.useAllOrders().length,1105)
+ assert.equal(new Set(a.board.useAllOrders().map(row=>row.id)).size,1105)
+})

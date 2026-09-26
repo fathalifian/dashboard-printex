@@ -85,7 +85,7 @@ export default function ProductionBoardPage() {
       else setNotice('Pindahkan order ke Order Selesai terlebih dahulu sebelum mengonfirmasi penyerahan barang.')
       return
     }
-    try { if (await moveOrderToStage(orderId, stage)) setNotice('')
+    try { if (await moveOrderToStage(orderId, stage)) { setNotice(`${sourceOrder.spkCode} dipindahkan ke ${STAGES.find(item => item.id === stage)?.label}.`) }
     else setNotice('Perpindahan ditolak. Gunakan tahap berikutnya/sebelumnya. Pengecualian: Order Masuk ke Menunggu Pembayaran, atau Sublim ke Selesai khusus DTF.') } catch { setNotice('Perubahan belum tersimpan. Periksa pesan koneksi lalu coba lagi.') }
   }
 
@@ -135,8 +135,8 @@ export default function ProductionBoardPage() {
     <div className="flex min-h-full flex-col gap-5"
       onDragOver={event => { if (isFileDrop(event.dataTransfer)) { event.preventDefault(); event.dataTransfer.dropEffect = 'none' } }}
       onDrop={event => { if (isFileDrop(event.dataTransfer)) { event.preventDefault(); setPhotoDropTarget(null); setNotice('Letakkan foto tepat pada kartu order yang dituju.') } }}>
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div role="group" aria-label="Zoom board produksi" className="board-zoom-controls flex flex-wrap items-center gap-1 rounded-xl border border-slate-200 bg-white p-1.5 shadow-sm">
+      <div className="flex flex-nowrap items-center gap-3 overflow-x-auto pb-1">
+        <div role="group" aria-label="Zoom board produksi" className="board-zoom-controls flex shrink-0 flex-nowrap items-center gap-1 rounded-xl border border-slate-200 bg-white p-1.5 shadow-sm">
           <button type="button" onClick={() => adjustZoom(zoomPercent - 10)} disabled={zoomPercent <= 10} aria-label="Perkecil board" title="Perkecil board" className="rounded-lg p-2 text-slate-600 hover:bg-slate-100 disabled:opacity-30"><ZoomOut className="h-4 w-4" /></button>
           <input type="range" min="10" max="150" step="1" value={zoomPercent} onChange={event => adjustZoom(Number(event.target.value))} aria-label="Ukuran board" aria-valuetext={`${zoomPercent} persen`} className="w-20 cursor-pointer accent-brand-600 sm:w-24" />
           <button type="button" onClick={() => adjustZoom(zoomPercent + 10)} disabled={zoomPercent >= 150} aria-label="Perbesar board" title="Perbesar board" className="rounded-lg p-2 text-slate-600 hover:bg-slate-100 disabled:opacity-30"><ZoomIn className="h-4 w-4" /></button>
@@ -144,7 +144,7 @@ export default function ProductionBoardPage() {
           <button type="button" onClick={() => { setManualZoom(null); boardViewport.current?.scrollTo({ left: 0 }) }} aria-pressed={manualZoom === null} className={cn('inline-flex items-center gap-1.5 rounded-lg px-2.5 py-2 text-xs font-semibold', manualZoom === null ? 'bg-brand-50 text-brand-700' : 'text-slate-600 hover:bg-slate-100')}><Scan className="h-4 w-4" />Pas layar</button>
         </div>
         <StockShortcuts />
-        {manageOrders && <div className="flex flex-wrap items-stretch gap-2">
+        {manageOrders && <div className="ml-auto flex shrink-0 flex-nowrap items-stretch gap-2 whitespace-nowrap">
           <Link href="/archives" className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700"><Archive className="h-4 w-4" /> Laporan Arsip</Link>
           <Link href="/orders/new" className="inline-flex items-center justify-center gap-2 rounded-xl bg-brand-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-brand-700"><PlusCircle className="h-4 w-4" /> Tambah Order</Link>
         </div>}
@@ -214,6 +214,7 @@ export default function ProductionBoardPage() {
                         </div>
                         <p className={cn('mt-2 pr-10 text-[11px] font-medium', overdue ? 'board-due-overdue' : 'text-slate-500')}>Tenggat: {formatDueDate(order.dueAt, completed ? 'completed' : 'active')}</p>
                         <OrderTimer id={order.id} hideTotal={stage.id !== 'archive'} />
+
                         {stage.id === 'archive' && <><p className="mt-3 text-xs font-medium text-emerald-600">{order.deliveryMethod === 'pickup' ? 'Sudah diambil pembeli' : order.deliveryMethod === 'delivery' ? 'Sudah dikirim / diterima' : 'Penyerahan tercatat'}</p></>}
                       </article>
                     )
@@ -241,7 +242,7 @@ export default function ProductionBoardPage() {
         <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl">
           <h3 id="finish-order-title" className="text-lg font-bold text-slate-900">Simpan ke laporan arsip?</h3>
           <p className="mt-2 text-sm text-slate-600">{pendingFinish.spkCode} - {pendingFinish.customer}</p>
-          <p className="mt-3 text-sm text-slate-500">Order akan dikeluarkan dari board dan disimpan di Laporan Arsip dengan tanggal hari ini.</p>
+          <p className="mt-3 text-sm text-slate-500">Order akan dikeluarkan dari board dan disimpan di Laporan Arsip dengan tanggal hari ini. Foto order akan dihapus permanen; data order dan riwayat produksi tetap tersimpan.</p>
           {finishError && <p role="alert" className="mt-3 text-sm text-red-600">{finishError}</p>}
           <div className="mt-6 flex justify-end gap-3">
             <button autoFocus type="button" disabled={finishing} onClick={() => setPendingFinish(null)} className="rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-600">Batal</button>

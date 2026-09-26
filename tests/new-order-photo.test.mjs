@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs'
 import ts from 'typescript'
 
 // Exercise form submissions across rerenders with network outcomes under our control.
-function pageHarness() {
+function pageHarness({ failPhoto = false } = {}) {
   const values = [], calls = { created: [], uploaded: [], routes: [] }
   let cursor = 0
   const react = {
@@ -21,6 +21,8 @@ function pageHarness() {
   const jsx = (type, props) => ({ type, props })
   const dependencies = {
     react,
+    '@/components/order-photo-input': { OrderPhotoInput: 'PhotoInput' },
+    '@/lib/order-photo': { compressOrderPhoto: async file => ({ ...file, type: 'image/webp' }) },
     'react/jsx-runtime': { jsx, jsxs: jsx },
     'next/link': { default: 'Link' },
     'next/navigation': { useRouter: () => ({ replace: route => calls.routes.push(route) }) },
@@ -29,6 +31,7 @@ function pageHarness() {
       addOrder: async (input, id) => { calls.created.push({ input, id }) },
       saveOrderPhoto: async (id, file) => {
         calls.uploaded.push({ id, file })
+        if (failPhoto) { failPhoto = false; throw new Error('Upload gagal') }
       },
       errorMessage: error => error.message,
     },
@@ -65,4 +68,28 @@ test('rapid double submission does not duplicate creation or upload', async () =
   await Promise.all([page.submit(), page.submit()])
   assert.equal(page.calls.created.length, 1)
   assert.equal(page.calls.uploaded.length, 0)
+})
+
+
+test('optional photo uploads after creation and is compressed', async () => {
+  const page = pageHarness()
+  page.find(page.render(), node => node.type === 'PhotoInput').props.onChange({name:'order.png',type:'image/png'})
+  await page.submit()
+  assert.equal(page.calls.created.length, 1)
+  assert.equal(page.calls.uploaded.length, 1)
+  assert.equal(page.calls.uploaded[0].id, page.calls.created[0].id)
+  assert.equal(page.calls.uploaded[0].file.type, 'image/webp')
+  assert.deepEqual(page.calls.routes, ['/schedule'])
+})
+
+test('photo retry does not create a second order after upload failure', async () => {
+  const page = pageHarness({failPhoto:true})
+  page.find(page.render(), node => node.type === 'PhotoInput').props.onChange({name:'order.png',type:'image/png'})
+  await page.submit()
+  assert.equal(page.calls.routes.length, 0)
+  assert.match(page.find(page.render(), node => node.props?.role === 'alert').props.children, /Order sudah tersimpan/)
+  await page.submit()
+  assert.equal(page.calls.created.length, 1)
+  assert.equal(page.calls.uploaded.length, 2)
+  assert.deepEqual(page.calls.routes, ['/schedule'])
 })

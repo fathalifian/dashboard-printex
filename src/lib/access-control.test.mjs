@@ -36,6 +36,6 @@ test('operators must have both move endpoints inside their four stages', () => {
   assert.equal(access.canManageOrders('operator'), false)
   assert.equal(access.canManageUsers('admin'), false)
   assert.equal(access.canManageUsers('owner'), true)
-  assert.equal(access.roleLabel('superadmin'), 'Owner')
+  assert.equal(access.roleLabel('superadmin'), 'Owner Cabang')
   assert.equal(access.roleLabel('staff'), 'Operator')
 })

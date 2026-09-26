@@ -20,13 +20,13 @@ export default function CustomerServiceSettings() {
       const result = await saveCustomerService(draft ?? contact.number)
       if (result.error) { setError(result.error); return }
       contact.update(result.number); setDraft(null)
-      setMessage(result.number ? 'Nomor Customer Service berhasil disimpan untuk semua pengguna.' : 'Nomor dihapus. Tautan WhatsApp dinonaktifkan.')
+      setMessage(result.number ? 'Nomor Customer Service berhasil disimpan untuk seluruh cabang.' : 'Nomor dihapus. Tautan WhatsApp dinonaktifkan.')
     } catch { setError('Nomor belum tersimpan. Periksa koneksi lalu coba lagi.') }
     finally { setSaving(false) }
   }
   return <section id="customer-service" className="scroll-mt-20 rounded-xl border border-slate-200 bg-white p-5">
     <h2 className="text-sm font-semibold text-slate-900">WhatsApp Customer Service</h2>
-    <p className="mt-2 text-sm text-slate-500">Nomor yang dihubungi melalui tombol Customer Service. Admin dan Owner dapat menggantinya.</p>
+    <p className="mt-2 text-sm text-slate-500">Satu nomor tim TI Printex untuk seluruh cabang melalui tombol Hubungi Kami. Perubahan oleh Admin atau Owner berlaku untuk semua cabang.</p>
     <form onSubmit={submit} className="mt-5 space-y-3">
       <label htmlFor="customer-service-phone" className="block text-sm font-medium text-slate-700">Nomor WhatsApp</label>
       <div className="flex flex-col gap-3 sm:flex-row">

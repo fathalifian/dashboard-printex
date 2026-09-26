@@ -6,7 +6,12 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "test": "node --test tests/*.test.mjs src/lib/*.test.mjs",
+    "typecheck": "tsc --noEmit",
+    "check": "npm run db:branch-check && npm run lint && npm run typecheck && npm test && npm run build",
+    "db:branch-upgrade": "node scripts/build-branch-upgrade.mjs",
+    "db:branch-check": "node scripts/build-branch-upgrade.mjs --existing --check"
   },
   "dependencies": {
     "@supabase/ssr": "^0.12.5",

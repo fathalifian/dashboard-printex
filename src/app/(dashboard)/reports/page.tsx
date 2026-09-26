@@ -3,6 +3,7 @@
 import { useState } from 'react'
 import DateRangeFilter, { todayRange } from '@/components/date-range-filter'
 import { ProcessTimingReport } from '@/components/production-timers'
+import { dailyOutput } from '@/lib/daily-output'
 import { Download } from 'lucide-react'
 import { BOARD_STAGE_META, useAllOrders, useProcessHistory } from '@/lib/production-board'
 import { jakartaDate, PROCESS_STAGES, summarizeEvents, processReportEvents, type ProcessStage } from '@/lib/process-metrics'
@@ -29,12 +30,14 @@ export default function ProcessReportsPage() {
   if (!invalid) for (let day = start; day <= end; day = shiftDay(day, 1)) days.push(day)
   const chart = days.map(day => ({ day, ...summarizeEvents(source, stage, day, day) }))
   const max = Math.max(4, ...chart.flatMap(day => [day.entered, day.completed]))
-  const current = orders.filter(order => order.board_stage === stage).length
+  const output = dailyOutput(orders, history, invalid ? '9999' : start, invalid ? '0000' : end)
+  const formatMeter = (meter: number) => new Intl.NumberFormat('id-ID', { maximumFractionDigits: 2 }).format(meter)
   const completionCard = { label: isArchive ? 'Selesai' : 'Proses selesai', value: stats.completed, caption: isArchive ? 'Berdasarkan tanggal klik Selesai di board Arsip' : 'Berpindah ke tahap lebih lanjut' }
   const cards = isArchive ? [completionCard] : [
     { label: 'Masuk ke proses', value: stats.entered, caption: 'Order unik masuk pertama kali' },
     completionCard,
-    { label: 'Order di tahap ini', value: current, caption: 'Posisi saat ini' },
+    { label: 'Output DTF', value: formatMeter(output.dtf.meter) + ' meter', caption: output.dtf.count + ' order selesai print' },
+    { label: 'Output Sublim', value: formatMeter(output.sublim.meter) + ' meter', caption: output.sublim.count + ' order selesai print' },
   ]
 
   function exportCsv() {
@@ -57,8 +60,8 @@ export default function ProcessReportsPage() {
       </section>
       {invalid && <p role="alert" className="text-sm text-red-600">Pilih tanggal yang valid, tanggal akhir setelah tanggal awal, maksimal 93 hari.</p>}
 
-      <div className={isArchive ? "grid gap-4" : "grid gap-4 md:grid-cols-3"}>
-        {cards.map(card => <section key={card.label} className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"><div className="flex items-center justify-between"><p className="text-sm font-medium text-slate-500">{card.label}</p></div><p className="mt-3 text-3xl font-bold text-slate-900">{invalid && card.label !== 'Order di tahap ini' ? '—' : card.value}</p><p className="mt-2 text-xs text-slate-400">{card.caption}</p></section>)}
+      <div className={isArchive ? "grid gap-4" : "grid gap-4 sm:grid-cols-2 xl:grid-cols-4"}>
+        {cards.map(card => <section key={card.label} className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"><div className="flex items-center justify-between"><p className="text-sm font-medium text-slate-500">{card.label}</p></div><p className="mt-3 text-3xl font-bold text-slate-900">{invalid ? '—' : card.value}</p><p className="mt-2 text-xs text-slate-400">{card.caption}</p></section>)}
       </div>
 
       <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">

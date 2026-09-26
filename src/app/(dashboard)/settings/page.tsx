@@ -8,7 +8,8 @@ import { canManageUsers as mayManageUsers } from '@/lib/access-control'
 import CustomerServiceSettings from '@/components/customer-service-settings'
 
 export default function SettingsPage() {
-  const canManageUsers = mayManageUsers(useOnlineConnection().profile?.role)
+  const connection = useOnlineConnection()
+  const canManageUsers = mayManageUsers(connection.profile?.role)
   return (
     <div className="grid w-full grid-cols-1 items-start gap-5 xl:grid-cols-[minmax(0,4fr)_minmax(0,5fr)]">
       <div className="min-w-0 space-y-5">
@@ -19,7 +20,7 @@ export default function SettingsPage() {
             <h3 className="text-sm font-semibold text-slate-900">Manajemen User</h3>
           </div>
           <p className="text-xs text-slate-500">Kelola akun dan hak akses.</p>
-          {canManageUsers ? <Link href="/settings/users" className="mt-3 inline-block text-sm font-semibold text-brand-600">Kelola Pengguna</Link> : <p className="mt-3 text-xs text-slate-500">Hanya Owner yang dapat mengelola pengguna.</p>}
+          {canManageUsers ? <Link href="/settings/users" className="mt-3 inline-block text-sm font-semibold text-brand-600">Kelola Pengguna</Link> : <p className="mt-3 text-xs text-slate-500">Pengelolaan akun dilakukan oleh Owner Pusat atau Owner Cabang.</p>}
         </div>
 
       </div>

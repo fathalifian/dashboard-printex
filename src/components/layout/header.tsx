@@ -2,6 +2,7 @@
 
 import { LogOut, ChevronDown, Moon, Sun, PanelLeftClose, PanelLeftOpen } from 'lucide-react'
 import { useOnlineConnection } from '@/lib/production-board'
+import BranchSelector from '@/components/branch-selector'
 import { roleLabel } from '@/lib/access-control'
 import { createClient } from '@/lib/supabase/client'
 import { usePathname } from 'next/navigation'
@@ -55,7 +56,7 @@ function ThemeToggle() {
 }
 
 export default function Header({ sidebarCollapsed, onToggleSidebar }: { sidebarCollapsed: boolean; onToggleSidebar: () => void }) {
-  const {profile}=useOnlineConnection()
+  const {profile,branches}=useOnlineConnection()
   const pathname = usePathname()
   const [showMenu, setShowMenu] = useState(false)
   const accountMenu = useRef<HTMLDivElement>(null)
@@ -80,7 +81,7 @@ export default function Header({ sidebarCollapsed, onToggleSidebar }: { sidebarC
     : pageTitles[pathname] ?? 'Printex Monitoring'
 
   return (
-    <header className="workspace-header sticky top-0 z-10 flex h-16 shrink-0 w-full items-center justify-between gap-3 border-b border-slate-200 bg-white px-6">
+    <header className={`workspace-header sticky top-0 z-10 flex min-h-16 shrink-0 w-full items-center justify-between gap-3 border-b border-slate-200 bg-white px-4 sm:px-6 ${branches ? 'flex-wrap py-2' : 'h-16'}`}>
       <div className="flex items-center gap-3">
         <button type="button" className="workspace-sidebar-toggle" onClick={onToggleSidebar} aria-expanded={!sidebarCollapsed} aria-controls="workspace-navigation" aria-label={sidebarCollapsed ? 'Perluas sidebar' : 'Perkecil sidebar'} title={sidebarCollapsed ? 'Perluas sidebar' : 'Perkecil sidebar'}>
           {sidebarCollapsed ? <PanelLeftOpen size={18} /> : <PanelLeftClose size={18} />}
@@ -89,6 +90,7 @@ export default function Header({ sidebarCollapsed, onToggleSidebar }: { sidebarC
       </div>
 
       <div className="flex items-center gap-3">
+        <BranchSelector />
         <ThemeToggle />
 
         <div ref={accountMenu} className="relative">

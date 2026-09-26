@@ -5,7 +5,7 @@ import { useParams, useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import { OrderTimer } from '@/components/production-timers'
 import OrderPhoto from '@/components/order-photo'
-import { AlertTriangle, Phone, CheckCircle2, Circle, Loader2, Pencil, Trash2 } from 'lucide-react'
+import { AlertTriangle, CheckCircle2, Circle, Loader2, Pencil, Trash2 } from 'lucide-react'
 import { PROCESS_STAGES } from '@/lib/process-metrics'
 import { deleteOrder, useAllOrders, useProcessHistory, BOARD_STAGE_META } from '@/lib/production-board'
 import { StatusBadge, CustomerTypeBadge } from '@/components/ui/badges'
@@ -101,13 +101,6 @@ function OrderDetail() {
                 <p className="text-xs text-slate-400">Due Date</p>
                 <p className={cn('text-sm font-medium', overdue ? 'text-red-600' : 'text-slate-900')}>
                   {formatDueDate(order.due_at, order.order_state)}
-                </p>
-              </div>
-              <div>
-                <p className="text-xs text-slate-400">No. WhatsApp</p>
-                <p className="text-sm font-medium text-slate-900 flex items-center gap-1">
-                  <Phone className="h-3.5 w-3.5 text-slate-400" />
-                  {order.customer.phone}
                 </p>
               </div>
               {order.notes && (

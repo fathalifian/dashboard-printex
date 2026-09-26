@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import { useOnlineConnection } from '@/lib/production-board'
 import Sidebar from '@/components/layout/sidebar'
 import Header from '@/components/layout/header'
 import OnlineStatus from '@/components/layout/online-status'
@@ -12,9 +13,10 @@ export default function DashboardLayout({
 }: {
   children: React.ReactNode
 }) {
+  const connection = useOnlineConnection()
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
   return (
-    <CustomerServiceProvider><div className={`${styles.shell} flex h-dvh overflow-hidden bg-[var(--background)]`}>
+    <CustomerServiceProvider key={connection.profile?.id}><div key={connection.branchId ?? 'all'} className={`${styles.shell} flex h-dvh overflow-hidden bg-[var(--background)]`}>
       <a href="#main-content" className={styles.skipLink}>Langsung ke konten</a>
       <Sidebar collapsed={sidebarCollapsed} />
       <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
