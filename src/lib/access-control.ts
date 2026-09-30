@@ -32,8 +32,8 @@ export function canAccessPage(role: unknown, pathname: string) {
   const normalized = normalizeRole(role)
   if (!normalized) return false
   const path = pathname.replace(/\/+$/, '') || '/'
-  if (path === '/settings/users') return true
   if (normalized === 'operator') return ['/', '/dashboard', '/schedule'].includes(path)
+  if (path === '/settings/users') return true
   if (path === '/settings/users' || path.startsWith('/settings/users/')) return normalized === 'central_owner' || normalized === 'owner'
   return true
 }

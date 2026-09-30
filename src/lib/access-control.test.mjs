@@ -10,7 +10,8 @@ new Function('exports', compiled)(access)
 
 test('page access is restricted by role, including direct and nested URLs', () => {
   for (const role of ['operator', 'staff']) {
-    for (const path of ['/', '/dashboard', '/schedule', '/schedule/', '/settings/users']) assert.equal(access.canAccessPage(role, path), true)
+    for (const path of ['/', '/dashboard', '/schedule', '/schedule/']) assert.equal(access.canAccessPage(role, path), true)
+    for (const path of ['/settings/users', '/settings/users/', '/settings/users/new']) assert.equal(access.canAccessPage(role, path), false)
     for (const path of ['/orders', '/orders/new', '/orders/123', '/orders/123/edit', '/reports', '/archives', '/history', '/tracking', '/settings', '/dashboard/extra']) {
       assert.equal(access.canAccessPage(role, path), false, `${role}: ${path}`)
     }

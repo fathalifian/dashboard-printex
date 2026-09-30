@@ -3,7 +3,7 @@
 import { z } from 'zod'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
-import { ACCESS_SCHEMA_VERSION, canManageUsers } from '@/lib/access-control'
+import { ACCESS_SCHEMA_VERSION, canAccessPage, canManageUsers } from '@/lib/access-control'
 
 const profileSchema = z.object({
   fullName: z.string().trim().min(1).max(100),
@@ -18,6 +18,7 @@ async function authorize(selfOnlyAllowed = false) {
   if (error || !user) throw new Error('Silakan login kembali.')
   const { data: profile, error: profileError } = await client.from('profiles').select('full_name,role,is_active,branch_id').eq('id', user.id).single()
   if (profileError || !profile?.is_active || (!selfOnlyAllowed && !canManageUsers(profile.role))) throw new Error('Hanya Owner yang dapat mengelola akun.')
+  if (!canAccessPage(profile.role, '/settings/users')) throw new Error('Anda tidak memiliki akses Kelola Akun.')
   const { data: status, error: statusError } = await client.rpc('printex_online_status')
   if (statusError || status?.schema_version !== ACCESS_SCHEMA_VERSION) throw new Error('Jalankan migrasi 0013_owner_operator_permissions.sql terlebih dahulu.')
 

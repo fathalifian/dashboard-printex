@@ -34,8 +34,8 @@ function setup(role, { duplicate = false, active = true } = {}) {
   }), lists: () => lists }
 }
 
-test('every role sees its own authenticated account once, even when the RPC omits it or branch filters exclude it', async () => {
-  for (const role of Object.keys(access.ROLE_LABELS)) {
+test('authorized roles see their own account once, even when the RPC omits it or branch filters exclude it', async () => {
+  for (const role of ['central_owner', 'owner', 'admin']) {
     for (const duplicate of [true, false]) {
       const api = setup(role, { duplicate })
       const result = await api.listManagedUsers('branch-b')
@@ -46,6 +46,16 @@ test('every role sees its own authenticated account once, even when the RPC omit
       assert.equal(result.users[0].email, 'self@example.com')
       if (!access.canManageUsers(role)) assert.equal(api.lists(), 0)
     }
+  }
+})
+
+test('operators cannot list managed accounts, including through a direct server action', async () => {
+  for (const role of ['operator', 'staff']) {
+    const api = setup(role)
+    const result = await api.listManagedUsers('branch-a')
+    assert.ok(result.error)
+    assert.deepEqual(result.users, [])
+    assert.equal(api.lists(), 0)
   }
 })
 

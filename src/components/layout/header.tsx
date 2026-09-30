@@ -5,7 +5,7 @@ import dynamic from 'next/dynamic'
 import Link from 'next/link'
 import { useOnlineConnection } from '@/lib/production-board'
 import BranchSelector from '@/components/branch-selector'
-import { roleLabel } from '@/lib/access-control'
+import { canAccessPage, roleLabel } from '@/lib/access-control'
 import { createClient } from '@/lib/supabase/client'
 import { usePathname } from 'next/navigation'
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
@@ -126,7 +126,7 @@ export default function Header({ sidebarCollapsed, onToggleSidebar }: { sidebarC
                 <UserRoundPen className="h-4 w-4" />
                 Edit Akun
               </button>
-              <Link href="/settings/users" onClick={() => setShowMenu(false)} className="flex w-full items-center gap-2 px-4 py-2 text-sm text-slate-700 hover:bg-slate-50">Kelola Akun</Link>
+              {canAccessPage(profile?.role, '/settings/users') && <Link href="/settings/users" onClick={() => setShowMenu(false)} className="flex w-full items-center gap-2 px-4 py-2 text-sm text-slate-700 hover:bg-slate-50">Kelola Akun</Link>}
               {/* A full navigation clears the in-memory production store on sign-out. */}
               {/* eslint-disable-next-line @next/next/no-location-assign-relative-destination */}
               <button onClick={async()=>{await createClient().auth.signOut();window.location.assign('/login')}} className="flex w-full items-center gap-2 px-4 py-2 text-sm text-red-600 hover:bg-red-50">
