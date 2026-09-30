@@ -12,9 +12,6 @@ import { StatusBadge, CustomerTypeBadge } from '@/components/ui/badges'
 import { formatDate, formatDueDate, isOverdue } from '@/lib/utils'
 import { cn } from '@/lib/utils'
 
-const STEP_COLORS: Record<string, string> = {
-  ORDER_IN: 'slate', DESIGN: 'red', DESIGN_DONE: 'blue', PRINTING: 'amber', PRESS: 'violet', DONE: 'emerald', ARCHIVE: 'slate',
-}
 
 export default function OrderDetailPage() {
   return <Suspense fallback={<p className="text-sm text-slate-500">Memuat detail order...</p>}><OrderDetail /></Suspense>
@@ -70,7 +67,7 @@ function OrderDetail() {
         <div className="flex flex-wrap items-center gap-2">
           {order.board_stage !== 'archive' && <><Link href={`/orders/${order.id}/edit`} className="inline-flex items-center gap-1.5 rounded-xl border border-brand-200 bg-brand-50 px-3 py-2 text-xs font-semibold text-brand-700 hover:bg-brand-100"><Pencil className="h-3.5 w-3.5" /> Edit Order</Link>
           <button type="button" onClick={handleDelete} className="inline-flex items-center gap-1.5 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs font-semibold text-red-700 hover:bg-red-100"><Trash2 className="h-3.5 w-3.5" /> Hapus Order</button></>}
-          <StatusBadge stepCode={order.current_step.code} stepName={order.current_step.name} colorToken={STEP_COLORS[order.current_step.code]} />
+          <StatusBadge stepName={order.current_step.name} />
         </div>
       </div>
 
@@ -93,6 +90,7 @@ function OrderDetail() {
                 <p className="text-xs text-slate-400">Jumlah Meter</p>
                 <p className="text-sm font-medium text-slate-900">{order.meter} m</p>
               </div>
+              {<div><p className="text-xs text-slate-400">Lebar Kertas</p><p className="text-sm font-medium text-slate-900">{order.production_type === 'DTF' ? 'Kertas DTF 0,6 m' : order.paper_width ? order.paper_width.replace('.', ',') + ' m' : 'Belum diisi'}</p></div>}
               <div>
                 <p className="text-xs text-slate-400">Tanggal Order</p>
                 <p className="text-sm font-medium text-slate-900">{formatDate(order.order_date)}</p>

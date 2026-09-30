@@ -9,7 +9,7 @@ Sumber resmi adalah file SQL bernomor di folder ini, setelah migrasi dasar `supa
 3. Tinjau dan jalankan `supabase/UPGRADE_BRANCHES.sql` di SQL Editor proyek Supabase yang benar.
 4. Deploy aplikasi dan muat ulang browser.
 
-Paket upgrade menjalankan 0021 dan lima migrasi cabang dalam satu transaksi. Paket tidak membuat akun uji, tidak mengganti password, tidak mengubah role atau cabang akun yang sudah ditetapkan. Pengaturan cabang yang sudah ada tetap dipertahankan. Aman dijalankan ulang. Nama cabang Salatiga/Semarang yang sudah dipakai proyek ini tetap dipertahankan.
+Paket upgrade menjalankan 0021 dan tujuh migrasi cabang dalam satu transaksi. Paket tidak membuat akun uji, tidak mengganti password, tidak mengubah role atau cabang akun yang sudah ditetapkan. Pengaturan cabang yang sudah ada tetap dipertahankan. Aman dijalankan ulang. Nama cabang Salatiga/Semarang yang sudah dipakai proyek ini tetap dipertahankan.
 
 ## Instalasi baru atau database satu cabang
 
@@ -37,3 +37,25 @@ CI menggunakan database lokal PGlite dan tidak mengakses database produksi. Akti
 ## Customer Service bersama
 
 Migrasi `0005_shared_customer_service.sql` memakai satu nomor tim TI untuk seluruh cabang, termasuk mode Semua cabang. Stock tetap per cabang. Akun aktif dapat membaca nomor; Admin dan Owner dapat mengubah nomor bersama, Operator hanya membaca. Nomor bersama yang sudah ada dipertahankan. Nomor cabang tidak dipilih otomatis. Jika nomor bersama kosong atau perlu diganti, isi nomor resmi tim TI sekali di Pengaturan. Data nomor cabang lama tetap tersimpan tetapi akses aplikasi ke tabel lama ditutup. Instalasi cabang yang sudah memiliki 0001?0004 cukup menjalankan 0005; paket UPGRADE_BRANCHES juga menyertakannya.
+
+## Lebar kertas Sublim
+
+Jalankan `0006_paper_width.sql` untuk database cabang yang sudah aktif (atau paket UPGRADE_BRANCHES terbaru). Database satu cabang menggunakan `supabase/migrations/0022_paper_width.sql`. Pilihan 1,2 / 1,6 / 1,8 meter untuk seluruh produksi selain DTF (Sublim, Umbul-umbul, Batik, Jersey). Nilai lama tetap NULL dan tidak ditebak. Form baru mewajibkan pilihan untuk seluruh produksi selain DTF; RPC menerima field yang dihilangkan oleh klien lama tanpa menghapus nilai tersimpan. Grafik menjumlahkan meter panjang order pada penyelesaian print pertama dalam WIB, mengikuti periode dan cabang aktif; ini bukan luas atau konsumsi kertas termasuk limbah.
+
+Setelah migrasi lebar kertas awal, jalankan `0007_non_dtf_paper_width.sql` untuk memperluas pilihan ke Umbul-umbul, Batik, dan Jersey. Paket UPGRADE_BRANCHES terbaru sudah menyertakan keduanya.
+
+
+## Kelola Cabang (0008)
+
+Untuk instalasi cabang yang sudah aktif, jalankan `0008_branch_management.sql` di Supabase SQL Editor. Migrasi ini tidak menghapus data yang ada. Server memerlukan `SUPABASE_SECRET_KEY` atau `SUPABASE_SERVICE_ROLE_KEY` untuk membersihkan file melalui Storage API dan akun melalui Auth Admin API.
+
+Owner Pusat dapat membuat cabang kosong, mengganti nama, dan menghapus cabang. Semua cabang tetap menggunakan satu proyek/database dan bucket privat `order-photos`; RLS membatasi data dan file menurut cabang pemilik order. Cabang baru mendapat identitas UUID dan pengaturan stok sendiri, tanpa menyalin data cabang lain. Foto menggunakan folder UUID order yang terikat pada cabang.
+
+Penghapusan memerlukan pengetikan nama cabang. Tahap pertama membekukan akses cabang, menonaktifkan akun, menghapus data order/riwayat/pelanggan dan menyimpan daftar file serta akun untuk pembersihan. Server menghapus file melalui Storage API, lalu akun Auth, dan menyelesaikan penghapusan pengaturan serta cabang. Jika gagal, cabang tetap tercantum sebagai penghapusan belum selesai dan tombol **Lanjutkan Hapus** melanjutkan pekerjaan. Akun Owner Pusat, nomor Customer Service bersama, dan cabang lain tetap dipertahankan. Jangan menghapus metadata `storage.objects` lewat SQL pada database produksi.
+
+
+## Perbaikan penghapusan arsip (0009)
+
+Setelah 0008, jalankan `0009_archive_branch_deletion.sql`. Penghapusan cabang yang dikonfirmasi Owner Pusat kini juga dapat membersihkan order arsip. Order arsip tetap tidak dapat dihapus melalui alur order biasa. Paket `UPGRADE_BRANCHES.sql` terbaru juga tidak membuat kembali cabang bawaan yang sudah dihapus saat dijalankan ulang.
+
+DTF 0,6 m: jalankan `0010_dtf_paper_width.sql` untuk database cabang atau `supabase/migrations/0024_dtf_paper_width.sql` untuk database satu cabang. RPC otomatis mengisi 0,6 untuk DTF saat tambah/edit. Grafik mengelompokkan seluruh DTF termasuk order lama ke DTF 0,6 m; data lama tidak ditulis ulang.

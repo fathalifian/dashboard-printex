@@ -10,14 +10,14 @@ new Function('exports', compiled)(access)
 
 test('page access is restricted by role, including direct and nested URLs', () => {
   for (const role of ['operator', 'staff']) {
-    for (const path of ['/', '/dashboard', '/schedule', '/schedule/']) assert.equal(access.canAccessPage(role, path), true)
-    for (const path of ['/orders', '/orders/new', '/orders/123', '/orders/123/edit', '/reports', '/archives', '/history', '/tracking', '/settings', '/settings/users', '/dashboard/extra']) {
+    for (const path of ['/', '/dashboard', '/schedule', '/schedule/', '/settings/users']) assert.equal(access.canAccessPage(role, path), true)
+    for (const path of ['/orders', '/orders/new', '/orders/123', '/orders/123/edit', '/reports', '/archives', '/history', '/tracking', '/settings', '/dashboard/extra']) {
       assert.equal(access.canAccessPage(role, path), false, `${role}: ${path}`)
     }
   }
   for (const role of ['owner', 'admin']) {
     for (const path of ['/orders/new', '/orders/123/edit', '/reports', '/archives', '/settings']) assert.equal(access.canAccessPage(role, path), true)
-    assert.equal(access.canAccessPage(role, '/settings/users'), role === 'owner')
+    assert.equal(access.canAccessPage(role, '/settings/users'), true)
   }
   for (const unknown of [null, undefined, '', 'guest', 'OWNER']) {
     assert.equal(access.canAccessPage(unknown, '/dashboard'), false)

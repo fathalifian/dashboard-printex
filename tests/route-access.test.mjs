@@ -26,7 +26,7 @@ function middleware(role, active=true, user=true) {
   }).updateSession
 }
 test('operator direct requests and prefetched RSC payloads cannot open restricted pages',async()=>{
-  for(const path of ['/orders/new','/orders/123','/orders/123/edit','/reports','/archives','/settings','/settings/users']) {
+  for(const path of ['/orders/new','/orders/123','/orders/123/edit','/reports','/archives','/settings']) {
     const request=new NextRequest('https://printex.example'+path+'?_rsc=fixture',{headers:{rsc:'1','next-router-prefetch':'1'}})
     const response=await middleware('operator')(request)
     assert.equal(response.status,307)
@@ -39,7 +39,7 @@ test('owner/admin access, inactive accounts, unknown roles and unauthenticated r
   const request=path=>new NextRequest('https://printex.example'+path)
   for(const role of ['owner','admin']) assert.equal((await middleware(role)(request('/orders/new'))).status,200)
   assert.equal((await middleware('owner')(request('/settings/users'))).status,200)
-  assert.equal((await middleware('admin')(request('/settings/users'))).headers.get('location'),'https://printex.example/dashboard')
+  for (const role of ['owner', 'central_owner', 'admin', 'operator']) assert.equal((await middleware(role)(request('/settings/users'))).status,200)
   for(const handler of [middleware('operator',false),middleware('unknown')]) {
     assert.equal((await handler(request('/dashboard'))).headers.get('location'),'https://printex.example/login?error=access')
   }

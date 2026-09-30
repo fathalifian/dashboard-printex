@@ -321,3 +321,50 @@ test('initial keyset pagination loads more than 1000 rows without losing boundar
  assert.equal(a.board.useAllOrders().length,1105)
  assert.equal(new Set(a.board.useAllOrders().map(row=>row.id)).size,1105)
 })
+
+test('unchanged branch metadata keeps its reference, while renamed branches refresh', async () => {
+ const api=backend(true,true),a=device(api.client)
+ a.board.useOnlineConnection()
+ await waitFor(()=>a.board.useOnlineConnection().state==='ready')
+ await a.board.refreshOnlineData()
+ const branches=a.board.useOnlineConnection().branches
+ const rpc=api.client.rpc
+ api.client.rpc=async(name,args)=>{
+  const result=await rpc(name,args)
+  if(name==='printex_branch_context') result.data.branches=structuredClone(result.data.branches)
+  return result
+ }
+ await a.board.refreshOnlineData()
+ assert.equal(a.board.useOnlineConnection().branches,branches)
+ api.client.rpc=async(name,args)=>{
+  const result=await rpc(name,args)
+  if(name==='printex_branch_context') result.data.branches=result.data.branches.map(branch=>({...branch,name:branch.name+' Baru'}))
+  return result
+ }
+ await a.board.refreshOnlineData()
+ assert.notEqual(a.board.useOnlineConnection().branches,branches)
+ assert.equal(a.board.useOnlineConnection().branches[0].name,'Salatiga Baru')
+})
+
+test('an older branch response cannot reset a newer branch selection', async () => {
+ const api=backend(true,true),a=device(api.client)
+ a.board.useOnlineConnection()
+ await waitFor(()=>a.board.useOnlineConnection().state==='ready')
+ await a.board.refreshOnlineData()
+ const rpc=api.client.rpc
+ let release, intercepted=false
+ api.client.rpc=async(name,args)=>{
+  if(name==='printex_branch_context'&&!intercepted) {
+   intercepted=true
+   return new Promise(resolve=>{release=()=>resolve({data:{branches:[{id:'salatiga',name:'Salatiga'}],central:true,branchId:null}})})
+  }
+  return rpc(name,args)
+ }
+ const refresh=a.board.refreshOnlineData()
+ await waitFor(()=>!!release)
+ const selection=a.board.selectBranch('semarang')
+ release()
+ await Promise.all([refresh,selection])
+ assert.equal(a.board.useOnlineConnection().branchId,'semarang')
+ assert.equal(a.board.useOnlineConnection().state,'ready')
+})

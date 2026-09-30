@@ -3,8 +3,10 @@
 import { useEffect, useMemo, useRef, useState, type DragEvent } from 'react'
 import Link from 'next/link'
 import { OrderTimer } from '@/components/production-timers'
-import { AlertTriangle, Archive, Pencil, PlusCircle, Save, Trash2, X, ZoomIn, ZoomOut, Scan } from 'lucide-react'
+import { AlertTriangle, Archive, ChevronLeft, Pencil, PlusCircle, Save, Trash2, X, ZoomIn, ZoomOut, Scan } from 'lucide-react'
 import StockShortcuts from '@/components/stock-shortcuts'
+import BranchBoardList from '@/components/dashboard/branch-board-list'
+import { selectBranch } from '@/lib/production-board'
 import { formatDueDate, isOverdue, cn } from '@/lib/utils'
 import { canDragStage, canManageOrders, canMoveBetweenStages, normalizeRole } from '@/lib/access-control'
 import { archiveOrder, finishArchivedOrder, deleteOrder, moveOrderToStage, saveOrderPhoto, errorMessage, useProductionOrders, useOnlineConnection, canMoveOrder, type BoardStageId, type DeliveryMethod } from '@/lib/production-board'
@@ -24,6 +26,32 @@ const STAGES: Array<{ id: StageId; label: string }> = [
 ]
 
 export default function ProductionBoardPage() {
+  const connection = useOnlineConnection()
+  const orders = useProductionOrders()
+  const [error, setError] = useState('')
+  const isCentral = connection.central && normalizeRole(connection.profile?.role) === 'central_owner'
+  async function openBranch(id: string | null) {
+    setError('')
+    try { await selectBranch(id) } catch (error) { setError(errorMessage(error)) }
+  }
+  if (!isCentral) return <ProductionBoard />
+  const branch = connection.branches?.find(item => item.id === connection.branchId)
+  return <div className="space-y-5">
+    {error && <p role="alert" className="rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-600">{error}</p>}
+    {!connection.branchId ? <BranchBoardList branches={connection.branches ?? []} orders={orders} loading={connection.state === 'loading'} disabled={connection.busy || connection.state !== 'ready'} onOpen={id => void openBranch(id)} /> : <>
+      <div className="grid grid-cols-1 items-center gap-3 md:grid-cols-[1fr_auto_1fr]">
+        <button type="button" disabled={connection.busy || connection.state !== 'ready'} onClick={() => void openBranch(null)} className="inline-flex items-center gap-2 justify-self-start rounded-xl border border-red-600 bg-white px-4 py-2.5 text-sm font-medium text-red-600 hover:bg-red-50 disabled:opacity-50">
+          <ChevronLeft aria-hidden="true" className="h-4 w-4 shrink-0" />
+          Semua board cabang
+        </button>
+        <h2 className="text-center text-xl font-semibold text-slate-900">Board Produksi {branch?.name ?? 'Cabang terpilih'}</h2>
+      </div>
+      <ProductionBoard key={connection.branchId} />
+    </>}
+  </div>
+}
+
+function ProductionBoard() {
   const sharedOrders = useProductionOrders()
   const { profile, busy, state: connectionState } = useOnlineConnection()
   const role = profile?.role

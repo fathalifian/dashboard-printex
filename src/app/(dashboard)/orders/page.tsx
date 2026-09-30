@@ -7,9 +7,6 @@ import { StatusBadge, CustomerTypeBadge } from '@/components/ui/badges'
 import { formatDueDate, isOverdue } from '@/lib/utils'
 import { deleteOrder, useBoardOrders } from '@/lib/production-board'
 
-const STEP_COLORS: Record<string, string> = {
-  ORDER_IN: 'slate', DESIGN: 'red', DESIGN_DONE: 'blue', PRINTING: 'amber', PRESS: 'violet', DONE: 'emerald', ARCHIVE: 'slate',
-}
 
 const FILTERS = [
   { label: 'Semua', value: 'all' },
@@ -141,9 +138,7 @@ export default function OrdersPage() {
                     </td>
                     <td className="px-5 py-3.5">
                       <StatusBadge
-                        stepCode={order.current_step.code}
                         stepName={order.current_step.name}
-                        colorToken={STEP_COLORS[order.current_step.code]}
                         size="sm"
                       />
                     </td>

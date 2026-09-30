@@ -2,7 +2,7 @@
 
 import { useMemo, useSyncExternalStore } from 'react'
 import { BOARD_STAGE_META, useAllOrders, useProcessHistory } from '@/lib/production-board'
-import { jakartaDate, type ProcessStage } from '@/lib/process-metrics'
+import { jakartaDate, type ProcessEvent, type ProcessStage } from '@/lib/process-metrics'
 import { formatDuration, orderTiming, TIMED_STAGES } from '@/lib/process-timing'
 
 let now=0
@@ -15,10 +15,28 @@ function subscribe(listener:()=>void) {
 }
 function useClock(){return useSyncExternalStore(subscribe,()=>now,()=>0)}
 
+// Online snapshots replace their arrays. Share an index across cards instead of
+// scanning every order's complete history separately on each render.
+const historyIndexes = new WeakMap<ProcessEvent[], Map<string, ProcessEvent[]>>()
+const emptyEvents: ProcessEvent[] = []
+function historyIndex(history: ProcessEvent[]) {
+  let index = historyIndexes.get(history)
+  if (!index) {
+    index = new Map()
+    for (const event of history) {
+      const events = index.get(event.orderId)
+      if (events) events.push(event)
+      else index.set(event.orderId, [event])
+    }
+    historyIndexes.set(history, index)
+  }
+  return index
+}
+
 export function OrderTimer({id,detail=false,hideTotal=false}:{id:string;detail?:boolean;hideTotal?:boolean}) {
   const orders=useAllOrders(), history=useProcessHistory(), clock=useClock()
   const order=useMemo(()=>orders.find(row=>row.id===id),[orders,id])
-  const orderEvents=useMemo(()=>history.filter(event=>event.orderId===id),[history,id])
+  const orderEvents=historyIndex(history).get(id) ?? emptyEvents
   if(!order||!clock)return null
   const timing=orderTiming(order,orderEvents,clock)
   const current=timing.stages[order.board_stage]
@@ -47,7 +65,8 @@ export function OrderTimer({id,detail=false,hideTotal=false}:{id:string;detail?:
 export function ProcessTimingReport({stage,start,end}:{stage:ProcessStage;start:string;end:string}) {
   const orders=useAllOrders(),history=useProcessHistory(),clock=useClock()
   if(!clock)return null
-  const timings=orders.map(order=>({order,timing:orderTiming(order,history,clock)}))
+  const indexed=historyIndex(history)
+  const timings=orders.map(order=>({order,timing:orderTiming(order,indexed.get(order.id) ?? emptyEvents,clock)}))
   const eligible=(at:string|null)=>!!at&&jakartaDate(at)>=start&&jakartaDate(at)<=end
   const totalStage=stage==='incoming'||stage==='done'||stage==='archive'
   const stageRows=timings.filter(({timing})=>totalStage?timing.finished&&timing.totalMilliseconds!==null&&eligible(timing.completedAt):timing.stages[stage].visited&&!timing.stages[stage].running&&eligible(timing.stages[stage].lastExit))

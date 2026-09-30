@@ -93,3 +93,31 @@ test('photo retry does not create a second order after upload failure', async ()
   assert.equal(page.calls.uploaded.length, 2)
   assert.deepEqual(page.calls.routes, ['/schedule'])
 })
+
+test('Sublim form offers three paper widths and submits the selected width; DTF automatically sends 0.6',async()=>{
+ const page=pageHarness()
+ const production=()=>page.find(page.render(),node=>node.props?.name==='productionType')
+ production().props.onChange({target:{name:'productionType',value:'Sublim'}})
+ const paper=page.find(page.render(),node=>node.props?.name==='paperWidth')
+ assert.ok(paper.props.required)
+ paper.props.onChange({target:{name:'paperWidth',value:'1.6'}})
+ await page.submit()
+ assert.equal(page.calls.created[0].input.paperWidth,'1.6')
+ const dtf=pageHarness()
+ dtf.find(dtf.render(),node=>node.props?.name==='productionType').props.onChange({target:{name:'productionType',value:'DTF'}})
+ assert.equal(dtf.find(dtf.render(),node=>node.props?.name==='paperWidth'),null)
+ await dtf.submit()
+ assert.equal(dtf.calls.created[0].input.paperWidth,'0.6')
+})
+
+test('every non-DTF production type has the paper selector and persists its value',async()=>{
+ for(const type of ['Sublim','Umbul-umbul','Batik','Jersey']) {
+  const page=pageHarness()
+  page.find(page.render(),node=>node.props?.name==='productionType').props.onChange({target:{name:'productionType',value:type}})
+  const selector=page.find(page.render(),node=>node.props?.name==='paperWidth')
+  assert.ok(selector.props.required)
+  selector.props.onChange({target:{name:'paperWidth',value:'1.8'}})
+  await page.submit()
+  assert.equal(page.calls.created[0].input.paperWidth,'1.8')
+ }
+})

@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import DateRangeFilter, { todayRange } from '@/components/date-range-filter'
 import { ProcessTimingReport } from '@/components/production-timers'
 import { dailyOutput } from '@/lib/daily-output'
@@ -24,11 +24,19 @@ export default function ProcessReportsPage() {
   const {start,end} = range
   const isArchive = stage === 'archive'
   const invalid = !start || !end || start > end || (Date.parse(end) - Date.parse(start)) / 86400000 > 92
-  const source = processReportEvents(history, orders)
+  const source = useMemo(() => processReportEvents(history, orders), [history, orders])
   const stats = summarizeEvents(source, stage, invalid ? '9999' : start, invalid ? '0000' : end)
   const days: string[] = []
   if (!invalid) for (let day = start; day <= end; day = shiftDay(day, 1)) days.push(day)
-  const chart = days.map(day => ({ day, ...summarizeEvents(source, stage, day, day) }))
+  const countsByDay = new Map<string, { entered: number; completed: number }>()
+  for (const event of stats.events) {
+    const day = jakartaDate(event.occurredAt)
+    const counts = countsByDay.get(day) ?? { entered: 0, completed: 0 }
+    if (event.kind === 'entered') counts.entered++
+    if (event.kind === 'completed') counts.completed++
+    countsByDay.set(day, counts)
+  }
+  const chart = days.map(day => ({ day, ...(countsByDay.get(day) ?? { entered: 0, completed: 0 }) }))
   const max = Math.max(4, ...chart.flatMap(day => [day.entered, day.completed]))
   const output = dailyOutput(orders, history, invalid ? '9999' : start, invalid ? '0000' : end)
   const formatMeter = (meter: number) => new Intl.NumberFormat('id-ID', { maximumFractionDigits: 2 }).format(meter)

@@ -1,11 +1,17 @@
 -- Production branch migration. Apply in order after base migrations.
 BEGIN;
-CREATE TABLE IF NOT EXISTS public.branches (
+-- Seed the initial branches only on first installation. An upgrade must not
+-- recreate a branch that the central owner has deliberately deleted.
+DO $$ BEGIN
+ IF to_regclass('public.branches') IS NULL THEN
+CREATE TABLE public.branches (
  id uuid PRIMARY KEY DEFAULT gen_random_uuid(), name text NOT NULL UNIQUE, is_active boolean NOT NULL DEFAULT true
 );
 INSERT INTO public.branches(id,name) VALUES
 ('11111111-1111-4111-8111-111111111111','Salatiga'),
 ('22222222-2222-4222-8222-222222222222','Semarang') ON CONFLICT DO NOTHING;
+ END IF;
+END $$;
 ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS branch_id uuid REFERENCES public.branches(id);
 ALTER TABLE public.profiles DROP CONSTRAINT IF EXISTS profiles_role_check;
 ALTER TABLE public.profiles ADD CONSTRAINT profiles_role_check CHECK(role IN ('central_owner','owner','admin','operator'));

@@ -39,7 +39,13 @@ function harness({ role = 'owner', stage = 'done', busy = false, fail = false } 
       errorMessage: error => error.message,
     },
   }).default
-  const render = () => { cursor = 0; return Page() }
+  const render = () => {
+    cursor = 0
+    let node = Page()
+    // The route wraps the board; render its functional root before dispatching events.
+    while (typeof node?.type === 'function') node = node.type(node.props)
+    return node
+  }
   function find(node, predicate) {
     if (!node || typeof node !== 'object') return null
     if (predicate(node)) return node

@@ -1,6 +1,6 @@
 'use client'
 
-import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from 'react'
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { getCustomerService } from '@/app/(dashboard)/settings/customer-service-actions'
 import { useOnlineConnection } from '@/lib/production-board'
 
@@ -34,7 +34,8 @@ export default function CustomerServiceProvider({ children }: { children: ReactN
     return () => { cancelled = true; window.clearInterval(timer); window.removeEventListener('focus', onFocus) }
   }, [profile?.id, profile?.role])
 
-  return <CustomerServiceContext.Provider value={{ ...contact, update }}>{children}</CustomerServiceContext.Provider>
+  const value = useMemo(() => ({ ...contact, update }), [contact, update])
+  return <CustomerServiceContext.Provider value={value}>{children}</CustomerServiceContext.Provider>
 }
 
 export function useCustomerService() { return useContext(CustomerServiceContext) }

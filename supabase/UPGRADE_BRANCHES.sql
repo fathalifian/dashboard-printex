@@ -72,12 +72,18 @@ GRANT EXECUTE ON FUNCTION public.printex_sync_changes(bigint,uuid) TO authentica
 -- supabase/branch-migrations/0001_branches.sql
 -- Production branch migration. Apply in order after base migrations.
 
-CREATE TABLE IF NOT EXISTS public.branches (
+-- Seed the initial branches only on first installation. An upgrade must not
+-- recreate a branch that the central owner has deliberately deleted.
+DO $$ BEGIN
+ IF to_regclass('public.branches') IS NULL THEN
+CREATE TABLE public.branches (
  id uuid PRIMARY KEY DEFAULT gen_random_uuid(), name text NOT NULL UNIQUE, is_active boolean NOT NULL DEFAULT true
 );
 INSERT INTO public.branches(id,name) VALUES
 ('11111111-1111-4111-8111-111111111111','Salatiga'),
 ('22222222-2222-4222-8222-222222222222','Semarang') ON CONFLICT DO NOTHING;
+ END IF;
+END $$;
 ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS branch_id uuid REFERENCES public.branches(id);
 ALTER TABLE public.profiles DROP CONSTRAINT IF EXISTS profiles_role_check;
 ALTER TABLE public.profiles ADD CONSTRAINT profiles_role_check CHECK(role IN ('central_owner','owner','admin','operator'));
@@ -567,5 +573,272 @@ BEGIN
  (NEW.id,'dtf_paper','Stock DTF dan Kertas'),(NEW.id,'fabric','Stock Kain') ON CONFLICT DO NOTHING;
  RETURN NEW;
 END $$;
+
+-- supabase/branch-migrations/0006_paper_width.sql
+-- Apply after existing order migrations; supports single-branch and branch RPCs.
+
+ALTER TABLE public.orders ADD COLUMN IF NOT EXISTS paper_width numeric;
+DO $$ BEGIN
+ IF NOT EXISTS(SELECT 1 FROM pg_constraint WHERE conrelid='public.orders'::regclass AND conname='orders_paper_width_check') THEN
+  ALTER TABLE public.orders ADD CONSTRAINT orders_paper_width_check CHECK(paper_width IS NULL OR (production_type='Sublim' AND paper_width IN (1.2,1.6,1.8)));
+ END IF;
+END $$;
+DO $migration$
+DECLARE definition text;
+BEGIN
+ SELECT pg_get_functiondef('public.printex_mutate_order(text,uuid,bigint,jsonb)'::regprocedure) INTO definition;
+ IF position('paperWidth' IN definition)=0 THEN
+  IF position('production_type,meter,customer_type' IN definition)=0 OR position('meter=(p_data->>''meter'')::numeric,' IN definition)=0 THEN
+   RAISE EXCEPTION 'Versi RPC tidak dikenali. Jalankan migrasi order sebelumnya.';
+  END IF;
+  definition := replace(definition, 'IF p_action IN (''create'',''edit'') THEN',
+   'IF p_action IN (''create'',''edit'') THEN
+    IF p_data ? ''paperWidth'' AND p_data->>''paperWidth'' IS NOT NULL AND
+      ((p_data->>''paperWidth'') NOT IN (''1.2'',''1.6'',''1.8'') OR p_data->>''productionType'' <> ''Sublim'') THEN
+      RAISE EXCEPTION ''Lebar kertas hanya untuk Sublim: pilih 1,2, 1,6, atau 1,8 meter'';
+    END IF;');
+  definition := replace(definition,'production_type,meter,customer_type','production_type,meter,paper_width,customer_type');
+  definition := replace(definition,'(p_data->>''meter'')::numeric,p_data->>''customerType''','(p_data->>''meter'')::numeric,(p_data->>''paperWidth'')::numeric,p_data->>''customerType''');
+  definition := replace(definition,'meter=(p_data->>''meter'')::numeric,',
+   'meter=(p_data->>''meter'')::numeric,paper_width=CASE WHEN p_data->>''productionType''<>''Sublim'' THEN NULL WHEN p_data ? ''paperWidth'' THEN (p_data->>''paperWidth'')::numeric ELSE o.paper_width END,');
+  EXECUTE definition;
+ END IF;
+END $migration$;
+
+-- supabase/branch-migrations/0007_non_dtf_paper_width.sql
+-- All non-DTF production uses sublimation paper. Run after paper width migration.
+
+ALTER TABLE public.orders DROP CONSTRAINT IF EXISTS orders_paper_width_check;
+ALTER TABLE public.orders ADD CONSTRAINT orders_paper_width_check
+ CHECK(paper_width IS NULL OR (production_type='DTF' AND paper_width=0.6) OR (production_type<>'DTF' AND paper_width IN (1.2,1.6,1.8)));
+DO $migration$
+DECLARE definition text;
+BEGIN
+ SELECT pg_get_functiondef('public.printex_mutate_order(text,uuid,bigint,jsonb)'::regprocedure) INTO definition;
+ IF position('paperWidth' IN definition)=0 THEN RAISE EXCEPTION 'Jalankan migrasi lebar kertas sebelumnya terlebih dahulu.'; END IF;
+ definition := replace(definition, 'p_data->>''productionType'' <> ''Sublim''', 'p_data->>''productionType'' = ''DTF''');
+ definition := replace(definition, 'p_data->>''productionType''<>''Sublim''', 'p_data->>''productionType''=''DTF''');
+ definition := replace(definition, 'Lebar kertas hanya untuk Sublim:', 'Lebar kertas untuk semua produksi selain DTF:');
+ EXECUTE definition;
+END $migration$;
+
+-- supabase/branch-migrations/0008_branch_management.sql
+-- Branch lifecycle within the existing project. Files are removed via Storage API.
+
+CREATE TABLE IF NOT EXISTS public.branch_deletions (
+ branch_id uuid PRIMARY KEY REFERENCES public.branches(id),
+ photo_paths jsonb NOT NULL DEFAULT '[]', user_ids jsonb NOT NULL DEFAULT '[]'
+);
+ALTER TABLE public.branch_deletions ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON public.branch_deletions FROM PUBLIC,anon,authenticated;
+
+-- Serialize new writes with branch retirement. Existing profile deactivation remains possible.
+CREATE OR REPLACE FUNCTION public.printex_require_active_branch() RETURNS trigger
+LANGUAGE plpgsql SECURITY DEFINER SET search_path='' AS $$
+BEGIN
+ IF NEW.branch_id IS NULL THEN RETURN NEW; END IF;
+ IF TG_TABLE_NAME='profiles' AND TG_OP='UPDATE' THEN
+   IF NEW.branch_id IS NOT DISTINCT FROM OLD.branch_id AND NOT NEW.is_active THEN RETURN NEW; END IF;
+ END IF;
+ PERFORM 1 FROM public.branches WHERE id=NEW.branch_id AND is_active FOR SHARE;
+ IF NOT FOUND THEN RAISE EXCEPTION 'Cabang tidak aktif atau sedang dihapus'; END IF;
+ RETURN NEW;
+END $$;
+REVOKE ALL ON FUNCTION public.printex_require_active_branch() FROM PUBLIC,anon,authenticated;
+DO $$ DECLARE t text; BEGIN
+ FOREACH t IN ARRAY ARRAY['orders','customers','profiles'] LOOP
+  EXECUTE format('DROP TRIGGER IF EXISTS require_active_branch ON public.%I',t);
+  EXECUTE format('CREATE TRIGGER require_active_branch BEFORE INSERT OR UPDATE ON public.%I FOR EACH ROW EXECUTE FUNCTION public.printex_require_active_branch()',t);
+ END LOOP;
+END $$;
+
+-- An upload already in flight must finish before retirement, or fail afterward.
+CREATE OR REPLACE FUNCTION public.printex_upload_active_branch() RETURNS trigger
+LANGUAGE plpgsql SECURITY DEFINER SET search_path='' AS $$
+DECLARE branch uuid;
+BEGIN
+ IF NEW.bucket_id <> 'order-photos' THEN RETURN NEW; END IF;
+ SELECT branch_id INTO branch FROM public.orders WHERE id::text=split_part(NEW.name,'/',1);
+ IF branch IS NULL THEN RAISE EXCEPTION 'Order foto tidak ditemukan'; END IF;
+ IF branch IS NOT NULL THEN
+  PERFORM 1 FROM public.branches WHERE id=branch AND is_active FOR SHARE;
+  IF NOT FOUND THEN RAISE EXCEPTION 'Cabang tidak aktif atau sedang dihapus'; END IF;
+ END IF;
+ RETURN NEW;
+END $$;
+REVOKE ALL ON FUNCTION public.printex_upload_active_branch() FROM PUBLIC,anon,authenticated;
+DROP TRIGGER IF EXISTS printex_upload_active_branch ON storage.objects;
+CREATE TRIGGER printex_upload_active_branch BEFORE INSERT OR UPDATE ON storage.objects FOR EACH ROW EXECUTE FUNCTION public.printex_upload_active_branch();
+
+CREATE OR REPLACE FUNCTION public.printex_manage_branch(p_action text,p_id uuid DEFAULT NULL,p_name text DEFAULT NULL)
+RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path='' AS $$
+DECLARE b public.branches; job public.branch_deletions;
+BEGIN
+ PERFORM pg_advisory_xact_lock(hashtextextended('printex-user-management',0));
+ PERFORM 1 FROM public.profiles WHERE id=auth.uid() AND is_active AND role='central_owner' FOR SHARE;
+ IF NOT FOUND THEN RAISE EXCEPTION 'Hanya Owner Pusat yang dapat mengelola cabang' USING ERRCODE='42501'; END IF;
+ IF p_action='list' THEN
+  RETURN (SELECT coalesce(jsonb_agg(jsonb_build_object('id',id,'name',name,'deleting',EXISTS(SELECT 1 FROM public.branch_deletions d WHERE d.branch_id=branches.id)) ORDER BY name),'[]') FROM public.branches);
+ END IF;
+ IF p_action NOT IN ('create','rename','prepare_delete','finish_delete') OR p_action IS NULL OR p_id IS NULL THEN RAISE EXCEPTION 'Aksi cabang tidak valid'; END IF;
+ IF p_action IN ('create','rename') AND (p_name IS NULL OR length(trim(p_name)) NOT BETWEEN 1 AND 100) THEN RAISE EXCEPTION 'Nama cabang harus 1?100 karakter'; END IF;
+ IF p_action='create' THEN
+  IF EXISTS(SELECT 1 FROM public.branches WHERE id=p_id AND name=trim(p_name) AND is_active) THEN RETURN '{}'::jsonb; END IF;
+  IF EXISTS(SELECT 1 FROM public.branches WHERE lower(name)=lower(trim(p_name))) THEN RAISE EXCEPTION 'Nama cabang sudah digunakan'; END IF;
+  INSERT INTO public.branches(id,name) VALUES(p_id,trim(p_name));
+  RETURN '{}'::jsonb;
+ END IF;
+ SELECT * INTO b FROM public.branches WHERE id=p_id FOR UPDATE;
+ IF NOT FOUND THEN
+  IF p_action IN ('prepare_delete','finish_delete') THEN RETURN jsonb_build_object('photo_paths','[]'::jsonb,'user_ids','[]'::jsonb); END IF;
+  RAISE EXCEPTION 'Cabang tidak ditemukan';
+ END IF;
+ IF p_action='rename' THEN
+  IF NOT b.is_active THEN RAISE EXCEPTION 'Cabang sedang dihapus'; END IF;
+  IF EXISTS(SELECT 1 FROM public.branches WHERE id<>p_id AND lower(name)=lower(trim(p_name))) THEN RAISE EXCEPTION 'Nama cabang sudah digunakan'; END IF;
+  UPDATE public.branches SET name=trim(p_name) WHERE id=p_id;
+  RETURN '{}'::jsonb;
+ END IF;
+ IF p_name IS DISTINCT FROM b.name THEN RAISE EXCEPTION 'Nama konfirmasi tidak cocok. Muat ulang daftar cabang'; END IF;
+ SELECT * INTO job FROM public.branch_deletions WHERE branch_id=p_id;
+ IF p_action='prepare_delete' THEN
+  IF job.branch_id IS NULL THEN
+   INSERT INTO public.branch_deletions(branch_id,photo_paths,user_ids)
+   SELECT p_id,
+    (SELECT coalesce(jsonb_agg(s.name),'[]') FROM storage.objects s WHERE s.bucket_id='order-photos' AND (
+      EXISTS(SELECT 1 FROM public.orders o WHERE o.branch_id=p_id AND (o.id::text=split_part(s.name,'/',1) OR o.photo_path=s.name))
+      OR EXISTS(SELECT 1 FROM public.order_photo_cleanup q WHERE q.branch_id=p_id AND q.path=s.name))),
+    (SELECT coalesce(jsonb_agg(id),'[]') FROM public.profiles WHERE branch_id=p_id AND role<>'central_owner')
+   RETURNING * INTO job;
+   UPDATE public.profiles SET branch_id=NULL WHERE branch_id=p_id AND role='central_owner';
+   UPDATE public.profiles SET is_active=false,deletion_requested_at=now() WHERE branch_id=p_id;
+   UPDATE public.branches SET is_active=false WHERE id=p_id;
+   -- Remove order references before Auth deletion invokes profile FK SET NULL actions.
+   -- The durable manifest retains every file and account required for cleanup retries.
+   DELETE FROM public.production_schedules ps
+    WHERE EXISTS(SELECT 1 FROM public.schedule_items si JOIN public.orders o ON o.id=si.order_id WHERE si.schedule_id=ps.id AND o.branch_id=p_id)
+    AND NOT EXISTS(SELECT 1 FROM public.schedule_items si JOIN public.orders o ON o.id=si.order_id WHERE si.schedule_id=ps.id AND o.branch_id<>p_id);
+   DELETE FROM public.schedule_items WHERE order_id IN (SELECT id FROM public.orders WHERE branch_id=p_id);
+   DELETE FROM public.process_history WHERE branch_id=p_id;
+   DELETE FROM public.orders WHERE branch_id=p_id;
+   DELETE FROM public.customers WHERE branch_id=p_id;
+  END IF;
+  RETURN jsonb_build_object('photo_paths',job.photo_paths,'user_ids',job.user_ids);
+ END IF;
+ IF job.branch_id IS NULL THEN RAISE EXCEPTION 'Mulai penghapusan cabang terlebih dahulu'; END IF;
+ IF EXISTS(SELECT 1 FROM storage.objects s WHERE s.bucket_id='order-photos' AND job.photo_paths ? s.name) THEN RAISE EXCEPTION 'File cabang belum selesai dihapus. Coba lagi'; END IF;
+ IF EXISTS(SELECT 1 FROM auth.users u WHERE job.user_ids ? u.id::text) THEN RAISE EXCEPTION 'Akun cabang belum selesai dihapus. Coba lagi'; END IF;
+ DELETE FROM public.schedule_items WHERE order_id IN (SELECT id FROM public.orders WHERE branch_id=p_id);
+ DELETE FROM public.process_history WHERE branch_id=p_id;
+ DELETE FROM public.orders WHERE branch_id=p_id;
+ DELETE FROM public.customers WHERE branch_id=p_id;
+ DELETE FROM public.order_photo_cleanup WHERE branch_id=p_id OR job.photo_paths ? path;
+ DELETE FROM public.branch_customer_service_settings WHERE branch_id=p_id;
+ DELETE FROM public.branch_stock_shortcuts WHERE branch_id=p_id;
+ -- Keep sync tombstones so other central-owner devices remove cached branch rows.
+ DELETE FROM public.branch_deletions WHERE branch_id=p_id;
+ DELETE FROM public.branches WHERE id=p_id;
+ RETURN '{}'::jsonb;
+END $$;
+REVOKE ALL ON FUNCTION public.printex_manage_branch(text,uuid,text) FROM PUBLIC,anon;
+GRANT EXECUTE ON FUNCTION public.printex_manage_branch(text,uuid,text) TO authenticated;
+
+-- supabase/branch-migrations/0009_archive_branch_deletion.sql
+-- Requires 0008. Preserve normal archive protection while deleting retired branches.
+
+CREATE OR REPLACE FUNCTION public.enforce_order_archiving()
+RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path = '' AS $$
+DECLARE previous_code text; next_code text;
+BEGIN
+  -- Archived rows may only be removed as part of a verified central-owner
+  -- branch retirement. Normal order deletion must still preserve archives.
+  IF TG_OP = 'DELETE' THEN
+    IF public.printex_central_owner() AND EXISTS (
+      SELECT 1 FROM public.branch_deletions d JOIN public.branches b ON b.id=d.branch_id
+      WHERE d.branch_id=OLD.branch_id AND NOT b.is_active
+    ) THEN RETURN OLD; END IF;
+  END IF;
+  -- Only FK-triggered removal of user references may update finalized archives.
+  IF TG_OP = 'UPDATE' AND pg_trigger_depth() > 1 THEN
+    IF (to_jsonb(NEW) - 'created_by' - 'assigned_designer_id' - 'updated_at' - 'version')
+      = (to_jsonb(OLD) - 'created_by' - 'assigned_designer_id' - 'updated_at' - 'version')
+      AND (NEW.created_by IS NULL OR NEW.created_by IS NOT DISTINCT FROM OLD.created_by)
+      AND (NEW.assigned_designer_id IS NULL OR NEW.assigned_designer_id IS NOT DISTINCT FROM OLD.assigned_designer_id) THEN
+      RETURN NEW;
+    END IF;
+  END IF;
+  IF current_setting('printex.importing',true) = 'yes' THEN RETURN NEW; END IF;
+  IF TG_OP <> 'INSERT' THEN
+    SELECT code INTO previous_code FROM public.production_steps WHERE id = OLD.current_step_id;
+    IF previous_code = 'ARCHIVE' THEN
+      IF TG_OP = 'DELETE' THEN
+        RAISE EXCEPTION 'Preserve archived orders and reports';
+      END IF;
+      IF (to_jsonb(NEW) - 'archive_finalized_at' - 'updated_at' - 'version')
+         IS DISTINCT FROM (to_jsonb(OLD) - 'archive_finalized_at' - 'updated_at' - 'version') THEN
+        RAISE EXCEPTION 'Archived order data is read-only';
+      END IF;
+      IF OLD.archive_finalized_at IS NOT NULL THEN
+        RETURN OLD; -- repeated clicks cannot change the original report date
+      END IF;
+      IF NEW.archive_finalized_at IS NOT NULL THEN
+        IF OLD.archived_at IS NULL OR OLD.delivery_method IS NULL THEN
+          RAISE EXCEPTION 'Delivery confirmation is required before finalization';
+        END IF;
+        NEW.archive_finalized_at := statement_timestamp();
+        NEW.photo_path := NULL; -- Release the photo only when leaving the board for reports.
+      END IF;
+      RETURN NEW;
+    END IF;
+  END IF;
+  IF TG_OP = 'DELETE' THEN RETURN OLD; END IF;
+  IF NEW.archive_finalized_at IS NOT NULL THEN
+    RAISE EXCEPTION 'Move to the archive board before finalizing';
+  END IF;
+  SELECT code INTO next_code FROM public.production_steps WHERE id = NEW.current_step_id;
+  IF next_code = 'ARCHIVE' THEN
+    IF TG_OP = 'INSERT' OR previous_code IS DISTINCT FROM 'DONE' THEN
+      RAISE EXCEPTION 'Only Done orders can be archived';
+    END IF;
+    IF NEW.delivery_method IS NULL OR NEW.delivery_method NOT IN ('pickup', 'delivery') THEN
+      RAISE EXCEPTION 'Confirm pickup or delivery before archiving';
+    END IF;
+    NEW.archived_at := statement_timestamp();
+    NEW.order_state := 'completed';
+  ELSIF NEW.archived_at IS NOT NULL OR NEW.delivery_method IS NOT NULL THEN
+    RAISE EXCEPTION 'Delivery metadata is only valid for archived orders';
+  END IF;
+  RETURN NEW;
+END;
+$$;
+
+-- supabase/branch-migrations/0010_dtf_paper_width.sql
+-- DTF uses 0.6 m automatically; other production uses 1.2 / 1.6 / 1.8 m.
+
+ALTER TABLE public.orders DROP CONSTRAINT IF EXISTS orders_paper_width_check;
+ALTER TABLE public.orders ADD CONSTRAINT orders_paper_width_check
+ CHECK(paper_width IS NULL OR (production_type='DTF' AND paper_width=0.6) OR (production_type<>'DTF' AND paper_width IN (1.2,1.6,1.8)));
+DO $migration$
+DECLARE definition text;
+BEGIN
+ SELECT pg_get_functiondef('public.printex_mutate_order(text,uuid,bigint,jsonb)'::regprocedure) INTO definition;
+ IF position('paperWidth' IN definition)=0 THEN RAISE EXCEPTION 'Jalankan migrasi lebar kertas sebelumnya terlebih dahulu.'; END IF;
+ IF position('-- automatic DTF paper' IN definition)=0 THEN
+  definition := replace(definition, 'IF p_action IN (''create'',''edit'') THEN',
+   'IF p_action IN (''create'',''edit'') THEN
+    -- automatic DTF paper
+    IF p_data->>''productionType'' = ''DTF'' THEN
+      p_data := jsonb_set(p_data, ''{paperWidth}'', ''"0.6"''::jsonb);
+    END IF;');
+ END IF;
+ definition := replace(definition,
+  '((p_data->>''paperWidth'') NOT IN (''1.2'',''1.6'',''1.8'') OR p_data->>''productionType'' = ''DTF'')',
+  '(p_data->>''productionType'' <> ''DTF'' AND (p_data->>''paperWidth'') NOT IN (''1.2'',''1.6'',''1.8''))');
+ definition := replace(definition, 'WHEN p_data->>''productionType''=''DTF'' THEN NULL', 'WHEN p_data->>''productionType''=''DTF'' THEN 0.6');
+ IF position('ELSE CASE WHEN o.paper_width=0.6' IN definition)=0 THEN
+ definition := replace(definition, 'ELSE o.paper_width END', 'ELSE CASE WHEN o.paper_width=0.6 THEN NULL ELSE o.paper_width END END');
+ END IF;
+ EXECUTE definition;
+END $migration$;
 
 COMMIT;

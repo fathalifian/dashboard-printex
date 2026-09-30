@@ -1,9 +1,7 @@
 import { cn } from '@/lib/utils'
 
 interface StatusBadgeProps {
-  stepCode: string
   stepName: string
-  colorToken?: string | null
   isOverdue?: boolean
   size?: 'sm' | 'md'
 }

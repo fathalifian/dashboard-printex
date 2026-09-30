@@ -509,6 +509,37 @@ test('incremental cursor records deletes, denies anonymous reads and rolls back 
  await db.exec('RESET ROLE')
 })
 
+test('paper width persists create/edit, rejects invalid widths and assigns DTF automatically, and preserves omitted legacy fields',async()=>{
+ await db.exec('RESET ROLE')
+ const sql=readFileSync('supabase/migrations/0022_paper_width.sql','utf8')
+ await db.exec(sql);await db.exec(sql)
+ await db.exec(readFileSync('supabase/migrations/0023_non_dtf_paper_width.sql','utf8'))
+ const dtfSql=readFileSync('supabase/migrations/0024_dtf_paper_width.sql','utf8')
+ await db.exec(dtfSql);await db.exec(dtfSql)
+ await db.query("SELECT set_config('request.jwt.claim.sub',$1,false)",[admin])
+ await db.exec('SET ROLE authenticated')
+ const paperId='eeeeeeee-0000-4000-8000-000000000002'
+ const values={...input,productionType:'Sublim',paperWidth:'1.2'}
+ await mutate('create',values,null,paperId)
+ const row=async()=> (await db.query('SELECT * FROM orders WHERE id=$1',[paperId])).rows[0]
+ assert.equal(Number((await row()).paper_width),1.2)
+ await mutate('edit',{...values,spkCode:'PAPER',paperWidth:'1.6'},(await row()).version,paperId)
+ assert.equal(Number((await row()).paper_width),1.6)
+ await assert.rejects(async()=>mutate('edit',{...values,spkCode:'PAPER',paperWidth:'1.4'},(await row()).version,paperId))
+ const legacy={...values}
+ delete legacy.paperWidth
+ await mutate('edit',{...legacy,spkCode:'PAPER'},(await row()).version,paperId)
+ assert.equal(Number((await row()).paper_width),1.6)
+ await mutate('edit',{...values,spkCode:'PAPER',productionType:'DTF'},(await row()).version,paperId)
+ await mutate('edit',{...legacy,spkCode:'PAPER',productionType:'DTF'},(await row()).version,paperId)
+ assert.equal(Number((await row()).paper_width),0.6)
+ await assert.rejects(async()=>mutate('edit',{...values,spkCode:'PAPER',paperWidth:'0.6'},(await row()).version,paperId))
+ const dtfId='eeeeeeee-0000-4000-8000-000000000003'
+ await mutate('create',{...input,productionType:'DTF'},null,dtfId)
+ assert.equal(Number((await db.query('SELECT paper_width FROM orders WHERE id=$1',[dtfId])).rows[0].paper_width),0.6)
+ await db.exec('RESET ROLE')
+})
+
 test('official branch migrations install on a legacy database without rewriting order contents',async()=>{
  await db.exec('RESET ROLE')
  // Real Supabase Auth includes this metadata column.

@@ -2,10 +2,12 @@
 
 import Link from 'next/link'
 
-
 import { useOnlineConnection } from '@/lib/production-board'
 import { canManageUsers as mayManageUsers } from '@/lib/access-control'
 import CustomerServiceSettings from '@/components/customer-service-settings'
+import dynamic from 'next/dynamic'
+
+const BranchManagementSettings = dynamic(() => import('@/components/branch-management'))
 
 export default function SettingsPage() {
   const connection = useOnlineConnection()
@@ -26,7 +28,7 @@ export default function SettingsPage() {
       </div>
 
       {/* Current Production Steps */}
-      <div className="min-w-0 rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+      {connection.profile?.role === 'central_owner' ? <BranchManagementSettings /> : <div className="min-w-0 rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
         <h3 className="text-sm font-semibold text-slate-900 mb-4">Tahapan Produksi Aktif</h3>
         <div className="space-y-2">
           {[
@@ -44,7 +46,7 @@ export default function SettingsPage() {
             </div>
           ))}
         </div>
-      </div>
+      </div>}
     </div>
   )
 }

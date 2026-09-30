@@ -228,4 +228,100 @@ test('shared support number is identical across branches, operator read-only, br
  assert.equal((await db.query('SELECT whatsapp_number FROM customer_service_settings')).rows[0].whatsapp_number,'')
 })
 
+test('branch paper width persists, remains isolated, and survives upgrade reruns',async()=>{
+ await login(admin)
+ const paperId='eeeeeeee-0000-4000-8000-000000000003'
+ await mutate('create',{...input,productionType:'Sublim',paperWidth:'1.8',branchId:salatiga},null,paperId)
+ assert.equal(Number((await db.query('SELECT paper_width FROM orders WHERE id=$1',[paperId])).rows[0].paper_width),1.8)
+ await login(smgAdmin)
+ assert.equal((await db.query('SELECT paper_width FROM orders WHERE id=$1',[paperId])).rows.length,0)
+ await assert.rejects(()=>mutate('edit',{...input,productionType:'Sublim',paperWidth:'1.2',spkCode:'FORGED'},1,paperId),/cabang/)
+ await db.exec('RESET ROLE')
+ await db.exec(readFileSync('supabase/UPGRADE_BRANCHES.sql','utf8'))
+ assert.equal(Number((await db.query('SELECT paper_width FROM orders WHERE id=$1',[paperId])).rows[0].paper_width),1.8)
+})
+
+
+test('non-DTF types store and retain paper widths on branch order edits',async()=>{
+ await login(admin)
+ for(const [index,type] of ['Umbul-umbul','Batik','Jersey'].entries()) {
+  const id='eeeeeeee-0000-4000-8000-00000000001'+index
+  const values={...input,productionType:type,paperWidth:'1.2',branchId:salatiga}
+  await mutate('create',values,null,id)
+  assert.equal(Number((await db.query('SELECT paper_width FROM orders WHERE id=$1',[id])).rows[0].paper_width),1.2)
+  await mutate('edit',{...values,spkCode:'PAPER-'+index,paperWidth:'1.8'},1,id)
+  assert.equal(Number((await db.query('SELECT paper_width FROM orders WHERE id=$1',[id])).rows[0].paper_width),1.8)
+ }
+})
+
 after(async()=>{await db.close()})
+
+
+test('central branch lifecycle isolates empty branches, renames, freezes and resumes complete deletion', async () => {
+ const branch='aaaaaaaa-1234-4000-8000-000000000001'
+ const user='aaaaaaaa-1234-4000-8000-000000000002'
+ const orderId='aaaaaaaa-1234-4000-8000-000000000003'
+ const photoPath=orderId+'/aaaaaaaa-1234-4000-8000-000000000004.webp'
+ const unusedPath=orderId+'/aaaaaaaa-1234-4000-8000-000000000005.webp'
+ const manage=async(action,name='Cabang Lifecycle')=>(await db.query('SELECT printex_manage_branch($1,$2,$3) AS result',[action,branch,name])).rows[0].result
+ await login(smgAdmin)
+ await assert.rejects(()=>manage('create'),/Owner Pusat/)
+ await login(admin)
+ const before=(await db.query('SELECT id FROM orders ORDER BY id')).rows
+ await manage('create')
+ await manage('create') // retry after lost response
+ assert.equal((await db.query('SELECT * FROM orders WHERE branch_id=$1',[branch])).rows.length,0)
+ assert.equal((await db.query('SELECT * FROM branch_stock_shortcuts WHERE branch_id=$1',[branch])).rows.length,2)
+ await manage('rename','Cabang Lifecycle Ganti')
+ await db.exec('RESET ROLE')
+ await db.query("INSERT INTO auth.users(id,email) VALUES($1,'new-branch@test.local')",[user])
+ await db.query("UPDATE profiles SET role='owner',is_active=true,branch_id=$2 WHERE id=$1",[user,branch])
+ await login(user)
+ await mutate('create',{...input,branchId:branch},null,orderId)
+ await db.query("INSERT INTO storage.objects(bucket_id,name) VALUES('order-photos',$1),('order-photos',$2)",[photoPath,unusedPath])
+ await db.query('SELECT printex_set_order_photo($1,1,$2)',[orderId,photoPath])
+ await login(smgAdmin)
+ assert.equal((await db.query('SELECT * FROM orders WHERE id=$1',[orderId])).rows.length,0)
+ assert.equal((await db.query('SELECT * FROM storage.objects WHERE name=$1',[photoPath])).rows.length,0)
+ await login(admin)
+ await assert.rejects(()=>manage('prepare_delete','wrong'),/konfirmasi/)
+ const job=await manage('prepare_delete','Cabang Lifecycle Ganti')
+ assert.deepEqual([...job.photo_paths].sort(),[photoPath,unusedPath].sort())
+ assert.deepEqual(job.user_ids,[user])
+ assert.deepEqual(await manage('prepare_delete','Cabang Lifecycle Ganti'),job)
+ assert.equal((await manage('list')).find(b=>b.id===branch).deleting,true)
+ await assert.rejects(()=>manage('finish_delete','Cabang Lifecycle Ganti'),/File/)
+ await assert.rejects(()=>mutate('create',{...input,branchId:branch},null,'aaaaaaaa-1234-4000-8000-000000000006'),/cabang/)
+ await db.exec('RESET ROLE')
+ // Model successful Storage/Auth API deletion; never use SQL deletion of storage in production.
+ await db.query('DELETE FROM storage.objects WHERE name=ANY($1)',[[photoPath,unusedPath]])
+ await login(admin)
+ await assert.rejects(()=>manage('finish_delete','Cabang Lifecycle Ganti'),/Akun/)
+ await db.exec('RESET ROLE')
+ await db.query('DELETE FROM auth.users WHERE id=$1',[user])
+ await login(admin)
+ await manage('finish_delete','Cabang Lifecycle Ganti')
+ await manage('finish_delete','Cabang Lifecycle Ganti')
+ assert.equal((await manage('list')).some(b=>b.id===branch),false)
+ assert.deepEqual((await db.query('SELECT id FROM orders ORDER BY id')).rows,before)
+ await db.exec('RESET ROLE')
+ for(const table of ['customers','process_history','order_photo_cleanup','branch_stock_shortcuts','branch_deletions']) assert.equal((await db.query(`SELECT * FROM ${table} WHERE branch_id=$1`,[branch])).rows.length,0,table)
+})
+
+
+test('reapplying the upgrade never resurrects a deleted default branch', async () => {
+ await login(admin)
+ const archived=(await db.query('SELECT * FROM orders WHERE id=$1',[smgOrder])).rows[0]
+ assert.ok(archived.archived_at)
+ await assert.rejects(()=>mutate('delete',{},archived.version,smgOrder),/arsip|archiv/i)
+ const job=(await db.query("SELECT printex_manage_branch('prepare_delete',$1,'Semarang') AS job",[semarang])).rows[0].job
+ await db.exec('RESET ROLE')
+ await db.query("DELETE FROM storage.objects WHERE bucket_id='order-photos' AND name=ANY($1)",[job.photo_paths])
+ await db.query('DELETE FROM auth.users WHERE id=ANY($1::uuid[])',[job.user_ids])
+ await login(admin)
+ await db.query("SELECT printex_manage_branch('finish_delete',$1,'Semarang')",[semarang])
+ await db.exec('RESET ROLE')
+ await db.exec(readFileSync('supabase/UPGRADE_BRANCHES.sql','utf8'))
+ assert.equal((await db.query('SELECT id FROM branches WHERE id=$1',[semarang])).rows.length,0)
+ assert.equal((await db.query('SELECT id FROM branches WHERE id=$1',[salatiga])).rows.length,1)
+})

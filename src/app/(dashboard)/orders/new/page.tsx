@@ -23,6 +23,7 @@ export default function NewOrderPage() {
     customer: '',
     productionType: '',
     meter: '',
+    paperWidth: '',
     customerType: 'regular',
     orderDate: jakartaDate(new Date()),
     dueDate: '',
@@ -46,6 +47,7 @@ export default function NewOrderPage() {
       customerName: form.customer.trim(),
       productionType: form.productionType,
       meter: Number(form.meter),
+      paperWidth: form.productionType === 'DTF' ? '0.6' : form.paperWidth || null,
       customerType: form.customerType,
       orderDate: form.orderDate,
       dueDate: form.dueDate,
@@ -132,6 +134,13 @@ export default function NewOrderPage() {
                 className="block w-full rounded-xl border border-slate-200 px-3 py-1.5 text-sm text-slate-900 placeholder:text-slate-400 focus:border-brand-500 focus:outline-none focus:ring-1 focus:ring-brand-500"
               />
             </div>
+            {form.productionType === 'DTF' && <label className="block text-sm font-medium text-slate-700">Kertas<input readOnly value="Kertas DTF 0,6 meter (otomatis)" className="mt-1 block w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-1.5 text-sm text-slate-900" /></label>}
+            {(!!form.productionType && form.productionType !== 'DTF') && <label className="block text-sm font-medium text-slate-700">Lebar Kertas <span className="text-red-500">*</span>
+              <select required name="paperWidth" value={form.paperWidth} onChange={handleChange} className="mt-1 block w-full rounded-xl border border-slate-200 px-3 py-1.5 text-sm text-slate-900">
+                <option value="">Pilih lebar kertas...</option>
+                <option value="1.2">1,2 meter</option><option value="1.6">1,6 meter</option><option value="1.8">1,8 meter</option>
+              </select>
+            </label>}
             <div className="sm:col-span-2">
               <label className="block text-sm font-medium text-slate-700 mb-1">Tipe Customer</label>
               <div className="flex flex-wrap gap-x-3 gap-y-1">

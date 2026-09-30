@@ -17,10 +17,10 @@ export const BOARD_STAGE_META: Record<BoardStageId, {code:string;name:string;col
   done:{code:'DONE',name:'Order Selesai',color:'emerald',orderState:'completed'},
   archive:{code:'ARCHIVE',name:'Order Diterima Customer',color:'slate',orderState:'completed'},
 }
-export type OrderEditInput = {spkCode:string;customerName:string;customerPhone?:string;productionType:string;meter:number;customerType:string;orderDate:string;dueDate:string;notes:string}
+export type OrderEditInput = {spkCode:string;customerName:string;customerPhone?:string;productionType:string;meter:number;paperWidth?:string|null;customerType:string;orderDate:string;dueDate:string;notes:string}
 export type NewOrderInput = Omit<OrderEditInput,'spkCode'>
 export type BoardOrder = {
-  id:string;branch_id?:string;spk_code:string;customer:{name:string;phone:string};production_type:string;meter:number;customer_type:string;
+  id:string;branch_id?:string;spk_code:string;customer:{name:string;phone:string};production_type:string;meter:number;paper_width?:string|null;customer_type:string;
   order_state:string;current_step:{code:string;name:string};order_date:string;due_at:string;notes:string;created_at:string;
   board_stage:BoardStageId;color_token:string;version:number;photo_path:string|null;archive:{archivedAt:string;deliveryMethod:DeliveryMethod;finalizedAt?:string}|null
 }
@@ -80,9 +80,13 @@ async function fetchSnapshot() {
     const {data:context,error} = await db().rpc('printex_branch_context')
     if(error) throw error
     const branches = context.branches as Branch[]
-    if(!branches.length) throw new Error('Akun belum memiliki cabang aktif. Hubungi Owner Pusat.')
+    if (revision !== branchRevision) { refreshAgain=true; return }
+    if(!branches.length && !context.central) throw new Error('Akun belum memiliki cabang aktif. Hubungi Owner Pusat.')
     if(selectedBranch === undefined || (selectedBranch !== null && !branches.some(branch=>branch.id===selectedBranch)) || (!context.central && selectedBranch === null)) selectedBranch = context.central ? null : context.branchId || branches[0].id
-    setConnection({branches,branchId:selectedBranch,central:context.central})
+    const sameBranches = connection.branches?.length === branches.length && branches.every((branch, index) => branch.id === connection.branches?.[index].id && branch.name === connection.branches[index].name)
+    if (!sameBranches || connection.branchId !== selectedBranch || connection.central !== context.central) {
+      setConnection({branches: sameBranches ? connection.branches : branches,branchId:selectedBranch,central:context.central})
+    }
   }
   const snapshotBranch = selectedBranch
   // Role and branch changes invalidate all cached rows, including any newly inaccessible data.
@@ -126,7 +130,7 @@ async function fetchSnapshot() {
   const nextOrders: BoardOrder[] = orderRows.map(row=>{
     const stage=stageFromStep(row.current_step_id), meta=BOARD_STAGE_META[stage], customer=customerMap.get(row.customer_id)
     return {id:String(row.id),branch_id:row.branch_id?String(row.branch_id):undefined,spk_code:String(row.spk_code),customer:{name:String(customer?.name??''),phone:String(customer?.phone??'')},
-      production_type:String(row.production_type),meter:Number(row.meter),customer_type:String(row.customer_type),order_state:meta.orderState,
+      production_type:String(row.production_type),meter:Number(row.meter),paper_width:row.paper_width == null ? null : String(Number(row.paper_width)),customer_type:String(row.customer_type),order_state:meta.orderState,
       current_step:{code:meta.code,name:meta.name},board_stage:stage,color_token:meta.color,order_date:String(row.order_date),due_at:String(row.due_at??''),
       notes:String(row.notes??''),created_at:String(row.created_at),version:Number(row.version),photo_path:row.photo_path?String(row.photo_path):null,
       archive:row.archived_at?{archivedAt:String(row.archived_at),deliveryMethod:row.delivery_method as DeliveryMethod,finalizedAt:row.archive_finalized_at?String(row.archive_finalized_at):undefined}:null}

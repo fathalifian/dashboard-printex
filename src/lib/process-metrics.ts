@@ -12,8 +12,10 @@ export type ProcessEvent = {
   actorName: string | null
 }
 
+const jakartaFormatter = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Jakarta', year: 'numeric', month: '2-digit', day: '2-digit' })
+
 export function jakartaDate(value: string | Date): string {
-  return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Jakarta', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date(value))
+  return jakartaFormatter.format(new Date(value))
 }
 
 export function transitionEvents(order: { id: string; spk_code: string; customer: { name: string } }, from: ProcessStage | null, to: ProcessStage, at: string): ProcessEvent[] {

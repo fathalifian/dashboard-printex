@@ -1,10 +1,10 @@
 'use client'
 
 import Link from 'next/link'
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { AlertTriangle, PlusCircle, Search } from 'lucide-react'
 import ProductionFlow from '@/components/dashboard/production-flow'
-import CentralDashboard from '@/components/dashboard/central-dashboard'
+import dynamic from 'next/dynamic'
 import DailyOutput from '@/components/dashboard/daily-output'
 import { StatusBadge } from '@/components/ui/badges'
 import { BOARD_STAGE_META, useProductionOrders, useOnlineConnection } from '@/lib/production-board'
@@ -12,7 +12,8 @@ import { formatDueDate, isOverdue } from '@/lib/utils'
 import { canManageOrders } from '@/lib/access-control'
 import { PROCESS_STAGES, type ProcessStage } from '@/lib/process-metrics'
 
-const STEP_COLORS: Record<string, string> = { ORDER_IN: 'slate', DESIGN: 'red', DESIGN_DONE: 'blue', PRINTING: 'amber', PRESS: 'violet', DONE: 'emerald', ARCHIVE: 'slate' }
+const CentralDashboard = dynamic(() => import('@/components/dashboard/central-dashboard'))
+
 type DashboardOrder = ReturnType<typeof useProductionOrders>[number]
 
 function OrderTable({ title, headerAction, orders, emptyMessage, canViewDetails }: { canViewDetails: boolean; title: string; headerAction?: React.ReactNode; orders: DashboardOrder[]; emptyMessage: string }) {
@@ -45,7 +46,7 @@ function OrderTable({ title, headerAction, orders, emptyMessage, canViewDetails 
                 <tr key={order.id} className={overdue ? 'bg-red-50/30 transition-colors hover:bg-red-50/60' : 'transition-colors hover:bg-slate-50'}>
                   <td className="px-4 py-3"><div className="flex items-center gap-2">{overdue && <AlertTriangle className="h-3.5 w-3.5 shrink-0 text-red-500" />}<code className="font-mono text-sm font-semibold text-slate-900">{order.spk_code}</code></div></td>
                   <td className="break-words px-4 py-3"><p className="text-sm font-medium text-slate-900">{order.customer.name}</p><p className="text-xs text-slate-400">{order.customer.phone}</p></td>
-                  <td className="px-4 py-3"><StatusBadge stepCode={order.current_step.code} stepName={order.current_step.name} colorToken={STEP_COLORS[order.current_step.code]} size="sm" /></td>
+                  <td className="px-4 py-3"><StatusBadge stepName={order.current_step.name} size="sm" /></td>
                   <td className="px-4 py-3"><span className={overdue ? 'text-xs font-medium text-red-600' : 'text-xs font-medium text-slate-600'}>{formatDueDate(order.due_at, order.order_state)}</span></td>
                   {canViewDetails && <td className="px-4 py-3 text-right"><Link href={`/orders/${order.id}?from=dashboard`} className="text-xs font-medium text-brand-600 hover:text-brand-800">Lihat Detail</Link></td>}
                 </tr>
@@ -65,9 +66,10 @@ export default function DashboardPage() {
   const connection = useOnlineConnection()
   const canViewDetails = canManageOrders(connection.profile?.role)
   const query = search.trim().toLowerCase()
-  const filteredOrders = orders.filter((order) => !query || order.spk_code.toLowerCase().includes(query) || order.customer.name.toLowerCase().includes(query))
-  
-  const visibleOrders = filteredOrders.filter(order => stage === 'all' || order.board_stage === stage)
+  const visibleOrders = useMemo(() => orders.filter(order =>
+    (stage === 'all' || order.board_stage === stage) &&
+    (!query || order.spk_code.toLowerCase().includes(query) || order.customer.name.toLowerCase().includes(query))
+  ), [orders, query, stage])
   const filterDropdown = <select aria-label="Filter tahap order" value={stage} onChange={event => setStage(event.target.value as ProcessStage | 'all')} className="max-w-[220px] rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-xs font-medium text-slate-700 focus:outline-2 focus:outline-brand-600">
     <option value="all">Semua tahap</option>
     {PROCESS_STAGES.map(id => <option key={id} value={id}>{BOARD_STAGE_META[id].name}</option>)}

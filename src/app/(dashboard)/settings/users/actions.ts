@@ -12,12 +12,12 @@ const profileSchema = z.object({
   branchId: z.string().uuid().optional(),
 })
 const createSchema = profileSchema.extend({ email: z.string().trim().email().max(254), password: z.string().min(8).max(128) })
-async function authorize() {
+async function authorize(selfOnlyAllowed = false) {
   const client = await createClient()
   const { data: { user }, error } = await client.auth.getUser()
   if (error || !user) throw new Error('Silakan login kembali.')
-  const { data: profile, error: profileError } = await client.from('profiles').select('role,is_active,branch_id').eq('id', user.id).single()
-  if (profileError || !profile?.is_active || !canManageUsers(profile.role)) throw new Error('Hanya Owner yang dapat mengelola akun.')
+  const { data: profile, error: profileError } = await client.from('profiles').select('full_name,role,is_active,branch_id').eq('id', user.id).single()
+  if (profileError || !profile?.is_active || (!selfOnlyAllowed && !canManageUsers(profile.role))) throw new Error('Hanya Owner yang dapat mengelola akun.')
   const { data: status, error: statusError } = await client.rpc('printex_online_status')
   if (statusError || status?.schema_version !== ACCESS_SCHEMA_VERSION) throw new Error('Jalankan migrasi 0013_owner_operator_permissions.sql terlebih dahulu.')
 
@@ -29,16 +29,22 @@ function message(error: unknown) {
 }
 export async function listManagedUsers(branchId?: string | null) {
   try {
-    const { client, user, multiBranch } = await authorize()
+    const { client, user, profile, multiBranch } = await authorize(true)
+    const ownAccount = { id: user.id, email: user.email ?? '', full_name: profile.full_name, role: profile.role, is_active: profile.is_active, branch_id: profile.branch_id ?? undefined }
+    if (!canManageUsers(profile.role)) return { users: [ownAccount], currentId: user.id, error: '' }
     const { data, error } = await client.rpc('printex_list_users')
     if (error) throw new Error(multiBranch ? 'Jalankan ENABLE_BRANCH_OWNER_USERS.sql untuk mengaktifkan pengelolaan akun cabang.' : 'Daftar akun belum tersedia. Jalankan migrasi manajemen user 0011.')
     let users = data
     if (multiBranch) {
       const profiles = await client.from('profiles').select('id,branch_id')
       if (profiles.error) throw profiles.error
-      users = data.map((account: {id:string}) => ({...account,branch_id:profiles.data.find(p=>p.id===account.id)?.branch_id}))
+      const branchesByUser = new Map(profiles.data.map(profile => [profile.id, profile.branch_id]))
+      users = data.map((account: {id:string}) => ({...account,branch_id:branchesByUser.get(account.id)}))
     }
     if (multiBranch && branchId) users = users.filter((account: { branch_id?: string }) => account.branch_id === branchId)
+    // RPCs may omit the caller, and a central owner has no branch assignment.
+    // Append the authenticated profile after branch filtering, without duplicates.
+    users = [...users.filter((account: { id: string }) => account.id !== user.id), ownAccount]
     return { users: users as Array<{ id: string; email: string; full_name: string; role: string; is_active: boolean; branch_id?: string }>, currentId: user.id, error: '' }
   } catch (error) { return { users: [], currentId: '', error: message(error) } }
 }

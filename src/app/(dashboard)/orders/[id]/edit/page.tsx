@@ -20,6 +20,7 @@ export default function EditOrderPage() {
     customerName: order.customer.name,
     productionType: order.production_type,
     meter: order.meter,
+    paperWidth: order.paper_width ?? null,
     customerType: order.customer_type,
     orderDate: order.order_date,
     dueDate: order.due_at,
@@ -32,7 +33,7 @@ export default function EditOrderPage() {
 
   async function handleSubmit(event: FormEvent) {
     event.preventDefault()
-    try { await updateOrder(id, form) } catch { return }
+    try { await updateOrder(id, { ...form, paperWidth: form.productionType === 'DTF' ? '0.6' : form.paperWidth === '0.6' ? null : form.paperWidth }) } catch { return }
     window.location.replace(new URL('/schedule', window.location.origin).toString())
   }
 
@@ -49,6 +50,8 @@ export default function EditOrderPage() {
           <label className="text-sm font-medium text-slate-700">Nama Customer<input required value={form.customerName} onChange={(e) => setField('customerName', e.target.value)} className={inputClass} /></label>
           <label className="text-sm font-medium text-slate-700">Jenis Produksi<select required value={form.productionType} onChange={(e) => setField('productionType', e.target.value)} className={inputClass}>{PRODUCTION_TYPES.map((type) => <option key={type}>{type}</option>)}</select></label>
           <label className="text-sm font-medium text-slate-700">Jumlah Meter<input required min="0" step="0.01" type="number" value={form.meter} onChange={(e) => setField('meter', Number(e.target.value))} className={inputClass} /></label>
+          {form.productionType === 'DTF' && <label className="text-sm font-medium text-slate-700">Kertas<input readOnly value="Kertas DTF 0,6 meter (otomatis)" className={inputClass} /></label>}
+          {(!!form.productionType && form.productionType !== 'DTF') && <label className="text-sm font-medium text-slate-700">Lebar Kertas<select required value={form.paperWidth === '0.6' ? '' : form.paperWidth ?? ''} onChange={e=>setField('paperWidth',e.target.value)} className={inputClass}><option value="">Pilih lebar kertas...</option><option value="1.2">1,2 meter</option><option value="1.6">1,6 meter</option><option value="1.8">1,8 meter</option></select></label>}
           <label className="text-sm font-medium text-slate-700">Tipe Customer<select value={form.customerType} onChange={(e) => setField('customerType', e.target.value)} className={inputClass}><option value="regular">Customer Biasa</option><option value="priority">Customer Prioritas</option></select></label>
           <label className="text-sm font-medium text-slate-700">Tanggal Order<input required type="date" value={form.orderDate} onChange={(e) => setField('orderDate', e.target.value)} className={inputClass} /></label>
           <label className="text-sm font-medium text-slate-700">Due Date<input required type="date" value={form.dueDate} onChange={(e) => setField('dueDate', e.target.value)} className={inputClass} /></label>
