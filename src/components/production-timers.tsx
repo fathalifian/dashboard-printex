@@ -1,9 +1,9 @@
 'use client'
 
 import { useMemo, useSyncExternalStore } from 'react'
-import { BOARD_STAGE_META, useAllOrders, useProcessHistory } from '@/lib/production-board'
+import { BOARD_STAGE_META, useAllOrders, useProcessHistory, useOnlineConnection, type BoardOrder } from '@/lib/production-board'
 import { jakartaDate, type ProcessEvent, type ProcessStage } from '@/lib/process-metrics'
-import { formatDuration, orderTiming, TIMED_STAGES } from '@/lib/process-timing'
+import { formatDuration, orderTiming, createOrderTimingReader, TIMED_STAGES } from '@/lib/process-timing'
 
 let now=0
 const listeners=new Set<()=>void>()
@@ -13,12 +13,14 @@ function subscribe(listener:()=>void) {
   if(!timer){now=Date.now();timer=setInterval(()=>{now=Date.now();listeners.forEach(fn=>fn())},1000)}
   return ()=>{listeners.delete(listener);if(!listeners.size){clearInterval(timer);timer=undefined}}
 }
-function useClock(){return useSyncExternalStore(subscribe,()=>now,()=>0)}
+const idleSubscribe = () => () => {}
+function useClock(active = true){return useSyncExternalStore(active ? subscribe : idleSubscribe,()=>active ? now : 0,()=>0)}
 
 // Online snapshots replace their arrays. Share an index across cards instead of
 // scanning every order's complete history separately on each render.
 const historyIndexes = new WeakMap<ProcessEvent[], Map<string, ProcessEvent[]>>()
 const emptyEvents: ProcessEvent[] = []
+let previousIndex = new Map<string, ProcessEvent[]>()
 function historyIndex(history: ProcessEvent[]) {
   let index = historyIndexes.get(history)
   if (!index) {
@@ -28,17 +30,25 @@ function historyIndex(history: ProcessEvent[]) {
       if (events) events.push(event)
       else index.set(event.orderId, [event])
     }
+    for (const [id, events] of index) {
+      const previous = previousIndex.get(id)
+      if (previous?.length === events.length && events.every((event, i) => event === previous[i])) index.set(id, previous)
+    }
+    previousIndex = index
     historyIndexes.set(history, index)
   }
   return index
 }
 
 export function OrderTimer({id,detail=false,hideTotal=false}:{id:string;detail?:boolean;hideTotal?:boolean}) {
-  const orders=useAllOrders(), history=useProcessHistory(), clock=useClock()
+  const orders=useAllOrders(), history=useProcessHistory()
   const order=useMemo(()=>orders.find(row=>row.id===id),[orders,id])
   const orderEvents=historyIndex(history).get(id) ?? emptyEvents
-  if(!order||!clock)return null
-  const timing=orderTiming(order,orderEvents,clock)
+  const reader=useMemo(()=>order ? createOrderTimingReader(order,orderEvents) : null,[order,orderEvents])
+  const baseline=useMemo(()=>reader?.(0),[reader])
+  const clock=useClock(!!baseline?.startedAt && !baseline.finished)
+  if(!order||!reader)return null
+  const timing=reader(clock)
   const current=timing.stages[order.board_stage]
   if(!detail && order.board_stage==='incoming')return <p className="mt-3 text-xs text-slate-500">Waktu produksi belum dimulai</p>
   if(!detail)return <dl className="board-timer mt-3 rounded-xl border px-3 py-2.5 tabular-nums">
@@ -54,7 +64,6 @@ export function OrderTimer({id,detail=false,hideTotal=false}:{id:string;detail?:
   return <section className="rounded-xl border border-slate-200 bg-white p-5">
     <h3 className="font-semibold text-slate-900">Waktu Proses Order</h3>
     <p className="mt-2 text-lg font-bold text-brand-600 tabular-nums">Total: {formatDuration(timing.totalMilliseconds)}</p>
-    <p className="mt-1 text-xs text-slate-500">{timing.finished?'Berhenti saat pertama masuk Order Selesai.':timing.startedAt?'Berjalan sejak masuk Desain atau Menunggu Pembayaran hingga Order Selesai.':'Belum ada catatan masuk Desain atau Menunggu Pembayaran.'} Durasi kalender, termasuk malam dan hari libur. Kunjungan ulang ke tahap yang sama dijumlahkan.</p>
     <div className="mt-4 divide-y divide-slate-100">{TIMED_STAGES.map(stage=>{
       const row=timing.stages[stage]
       return <div key={stage} className="flex justify-between gap-4 py-3 text-sm"><span className="text-slate-600">{BOARD_STAGE_META[stage].name}{row.running?' (berjalan)':''}</span><span className="text-right font-medium text-slate-900 tabular-nums">{row.visited?formatDuration(row.milliseconds):'Tidak dilalui / belum tercatat'}</span></div>
@@ -63,10 +72,13 @@ export function OrderTimer({id,detail=false,hideTotal=false}:{id:string;detail?:
 }
 
 export function ProcessTimingReport({stage,start,end}:{stage:ProcessStage;start:string;end:string}) {
-  const orders=useAllOrders(),history=useProcessHistory(),clock=useClock()
-  if(!clock)return null
+  const connection=useOnlineConnection()
+  const orders=useAllOrders(),history=useProcessHistory()
   const indexed=historyIndex(history)
-  const timings=orders.map(order=>({order,timing:orderTiming(order,indexed.get(order.id) ?? emptyEvents,clock)}))
+  const timings=useMemo(()=>{
+    const at=history.reduce((latest,event)=>Math.max(latest,Number.isFinite(Date.parse(event.occurredAt)) ? Date.parse(event.occurredAt) : 0),0)
+    return orders.map(order=>({order,timing:orderTiming(order,indexed.get(order.id) ?? emptyEvents,at)}))
+  },[orders,history,indexed])
   const eligible=(at:string|null)=>!!at&&jakartaDate(at)>=start&&jakartaDate(at)<=end
   const totalStage=stage==='incoming'||stage==='done'||stage==='archive'
   const stageRows=timings.filter(({timing})=>totalStage?timing.finished&&timing.totalMilliseconds!==null&&eligible(timing.completedAt):timing.stages[stage].visited&&!timing.stages[stage].running&&eligible(timing.stages[stage].lastExit))
@@ -77,11 +89,19 @@ export function ProcessTimingReport({stage,start,end}:{stage:ProcessStage;start:
     <h3 className="font-semibold text-slate-900">Durasi Proses</h3>
     <div className={totalStage?'mt-4':'mt-4 grid gap-4 sm:grid-cols-2'}>
       {!totalStage&&<div><p className="text-sm text-slate-500">Rata-rata {BOARD_STAGE_META[stage].name}</p><p className="mt-1 text-xl font-bold text-brand-600">{average===null?'Belum ada sampel':formatDuration(average)}</p><p className="text-xs text-slate-500">{stageRows.length} order</p></div>}
-      <div><p className="text-sm text-slate-500">Rata-rata total waktu produksi</p><p className="mt-1 text-xl font-bold text-brand-600">{totalAverage===null?'Belum ada sampel':formatDuration(totalAverage)}</p><p className="text-xs text-slate-500">{totals.length} order masuk Order Selesai pada periode ini</p></div>
+      <div><p className="text-sm text-slate-500">Rata-rata total waktu produksi</p><p className="mt-1 text-xl font-bold text-brand-600">{totalAverage===null?'Belum ada sampel':formatDuration(totalAverage)}</p><p className="text-xs text-slate-500">{totals.length} order selesai</p></div>
     </div>
     {!!stageRows.length&&<details key={stage+start+end} className="group mt-4 border-t border-slate-100 pt-3">
       <summary className="list-none cursor-pointer text-sm font-semibold text-brand-600 [&::-webkit-details-marker]:hidden"><span className="group-open:hidden">Buka rincian order ({stageRows.length})</span><span className="hidden group-open:inline">Tutup rincian order</span></summary>
-      <div className="mt-3 max-h-80 overflow-auto"><table className="w-full text-left text-sm"><thead><tr className="text-slate-500"><th className="py-2">SPK</th>{!totalStage&&<th>Durasi tahap</th>}<th>Total produksi</th></tr></thead><tbody>{stageRows.map(({order,timing})=><tr key={order.id} className="border-t border-slate-100 text-slate-700"><td className="py-2">{order.spk_code}</td>{!totalStage&&<td>{formatDuration(timing.stages[stage].milliseconds)}</td>}<td>{formatDuration(timing.totalMilliseconds)}{!timing.finished?' (berjalan)':''}</td></tr>)}</tbody></table></div>
+      <div className="mt-3 max-h-80 overflow-auto"><table className="w-full text-left text-sm"><thead><tr className="text-slate-500"><th className="py-2">SPK</th><th>Cabang</th>{!totalStage&&<th>Durasi tahap</th>}<th>Total produksi</th></tr></thead><tbody>{stageRows.map(({order,timing})=><tr key={order.id} className="border-t border-slate-100 text-slate-700"><td className="py-2">{order.spk_code}</td><td>{connection.branches?.find(branch=>branch.id===order.branch_id)?.name??'Belum tercatat'}</td>{!totalStage&&<td>{formatDuration(timing.stages[stage].milliseconds)}</td>}<td><ReportTotal order={order} events={indexed.get(order.id) ?? emptyEvents} /></td></tr>)}</tbody></table></div>
     </details>}
   </section>
+}
+
+function ReportTotal({order,events}:{order:BoardOrder;events:ProcessEvent[]}) {
+  const reader=useMemo(()=>createOrderTimingReader(order,events),[order,events])
+  const baseline=useMemo(()=>reader(0),[reader])
+  const clock=useClock(!baseline.finished && !!baseline.startedAt)
+  const timing=reader(clock)
+  return <>{formatDuration(timing.totalMilliseconds)}{!timing.finished?' (berjalan)':''}</>
 }

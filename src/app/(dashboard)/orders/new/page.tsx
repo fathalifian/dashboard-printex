@@ -134,7 +134,7 @@ export default function NewOrderPage() {
                 className="block w-full rounded-xl border border-slate-200 px-3 py-1.5 text-sm text-slate-900 placeholder:text-slate-400 focus:border-brand-500 focus:outline-none focus:ring-1 focus:ring-brand-500"
               />
             </div>
-            {form.productionType === 'DTF' && <label className="block text-sm font-medium text-slate-700">Kertas<input readOnly value="Kertas DTF 0,6 meter (otomatis)" className="mt-1 block w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-1.5 text-sm text-slate-900" /></label>}
+            {form.productionType === 'DTF' && <label className="block text-sm font-medium text-slate-700">Kertas<input readOnly value="DTF 0,6 m" className="mt-1 block w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-1.5 text-sm text-slate-900" /></label>}
             {(!!form.productionType && form.productionType !== 'DTF') && <label className="block text-sm font-medium text-slate-700">Lebar Kertas <span className="text-red-500">*</span>
               <select required name="paperWidth" value={form.paperWidth} onChange={handleChange} className="mt-1 block w-full rounded-xl border border-slate-200 px-3 py-1.5 text-sm text-slate-900">
                 <option value="">Pilih lebar kertas...</option>

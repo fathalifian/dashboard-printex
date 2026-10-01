@@ -2,6 +2,26 @@ import { jakartaDate, PROCESS_STAGES, type ProcessEvent, type ProcessStage } fro
 
 type FlowOrder = { id: string; board_stage: ProcessStage; archive: { finalizedAt?: string } | null }
 
+export function createProductionFlowReader(orders: FlowOrder[], history: ProcessEvent[], range?: { start: string; end: string }) {
+  const boundaries = [...history.map(event => Date.parse(event.occurredAt)), ...orders.map(order => Date.parse(order.archive?.finalizedAt ?? ''))]
+    .filter(Number.isFinite).sort((a,b) => a-b)
+  let snapshot: ReturnType<typeof productionFlow> | undefined
+  let anchor = 0
+  let nextEvent = Infinity
+  return (now: number) => {
+    if (!snapshot || now < anchor || now >= nextEvent) {
+      snapshot = productionFlow(orders, history, now, range)
+      anchor = now
+      nextEvent = boundaries.find(time => time > now) ?? Infinity
+    }
+    if (now === anchor) return snapshot
+    return snapshot.map((row, index) => {
+      const waiting = row.waiting.map(duration => duration + now-anchor)
+      return {...row, waiting, bottleneck: index < 5 && row.historicalSamples >= 3 && waiting.some(duration => duration > row.historicalTotal / row.historicalSamples)}
+    })
+  }
+}
+
 export function productionFlow(orders: FlowOrder[], history: ProcessEvent[], now: number, range?: { start: string; end: string }) {
   const rows = PROCESS_STAGES.map(stage => ({ stage, count: 0, samples: 0, total: 0, historicalSamples: 0, historicalTotal: 0, waiting: [] as number[], average: null as number | null, piling: false, bottleneck: false }))
   const byStage = Object.fromEntries(rows.map(row => [row.stage, row])) as Record<ProcessStage, typeof rows[number]>

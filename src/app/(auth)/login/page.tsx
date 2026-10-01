@@ -19,16 +19,11 @@ export default async function LoginPage({searchParams}:{searchParams:Promise<{er
         <section className="login-intro" aria-label="Printex Monitoring System">
         <div className="login-welcome space-y-5">
           <h2>Selamat Datang di <span>Printex Monitoring System</span></h2>
-          <p><em>Pantau proses produksi secara real-time, kelola status pekerjaan, dan pastikan setiap pesanan berjalan sesuai alur.</em></p>
-          <p className="login-intro-footer">Printex Monitoring System</p>
         </div>
       </section>
       <section className="login-form-panel"><div className="space-y-7">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight text-slate-900">Masuk ke Printex</h1>
-          <p className="mt-2 text-sm text-slate-600">
-            Masukkan akun Anda untuk membuka workspace.
-          </p>
         </div>
         {error && <p role="alert" className="text-sm text-red-600">{error === 'access' ? 'Akun belum aktif atau akses tidak tersedia. Hubungi Owner.' : 'Login gagal. Periksa email, password, dan koneksi lalu coba lagi.'}</p>}
         <form className="space-y-6" action={login}>
@@ -72,7 +67,6 @@ export default async function LoginPage({searchParams}:{searchParams:Promise<{er
             </button>
           </div>
         </form>
-        <p className="border-t border-slate-100 pt-5 text-center text-xs leading-5 text-slate-500">Hubungi admin jika Anda membutuhkan akses akun.</p>
       </div></section>
     </main>
   )

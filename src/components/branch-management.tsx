@@ -58,7 +58,6 @@ export function BranchManagement({ branches, onSave }: {
   const [message, setMessage] = useState('')
   return <section className="min-w-0 rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
     <div className="flex flex-wrap items-center justify-between gap-3"><h2 className="text-sm font-semibold text-slate-900">Kelola Cabang</h2><button type="button" onClick={() => setChange({ action: 'create', id: crypto.randomUUID(), name: '' })} className="rounded-xl bg-brand-600 px-4 py-2 text-sm font-semibold text-white">Tambah Cabang</button></div>
-    <p className="mt-3 text-sm text-slate-500">Buat cabang baru, ubah nama, atau hapus cabang beserta datanya.</p>
     {message && <p role="status" className="mt-4 text-sm text-slate-700">{message}</p>}
     <div className="mt-5 divide-y divide-slate-100">
       {branches.map(branch => <div key={branch.id} className="flex flex-wrap items-center justify-between gap-3 py-4"><p className="min-w-0 break-words text-sm font-semibold text-slate-900">{branch.name}{branch.deleting && <span className="mt-1 block text-xs font-normal text-slate-500">Penghapusan belum selesai</span>}</p><div className="flex gap-4 text-sm">{!branch.deleting && <button type="button" onClick={() => setChange({ action: 'rename', ...branch })} className="text-brand-600">Ubah Nama</button>}<button type="button" onClick={() => setChange({ action: 'delete', ...branch })} className="text-red-600">{branch.deleting ? 'Lanjutkan Hapus' : 'Hapus'}</button></div></div>)}

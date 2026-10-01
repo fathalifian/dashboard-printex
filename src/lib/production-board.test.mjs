@@ -11,9 +11,9 @@ function backend(pilot = false, incremental = false) {
   if(pilot) state.profiles[0].role='central_owner'
   let revision=0
   const seen=new Map(), changes=new Map()
-  const subscriptions=[]
+  const subscriptions=[], channels=[]
   const photos = new Map()
-  const emit=()=>subscriptions.forEach(fn=>fn())
+  const emit=()=>subscriptions.filter(item=>!item.channel.removed && item.filter.event!=='DELETE').forEach(item=>item.callback())
   const client={
     storage: { from(bucket) {
       assert.equal(bucket, 'order-photos')
@@ -69,12 +69,14 @@ function backend(pilot = false, incremental = false) {
       }
       emit();return {data:args.p_order_id}
     },
-    channel(){return {on(_event,_filter,callback){subscriptions.push(callback);return this},subscribe(callback){callback('SUBSCRIBED');return this}}},
+    removeChannel(channel){channel.removed=true;return Promise.resolve('ok')},
+    channel(){const channel={removed:false,on(_event,filter,callback){subscriptions.push({channel,filter,callback});return this},subscribe(callback){this.status=callback;callback('SUBSCRIBED');return this}};channels.push(channel);return channel},
   }
-  return {state,client,emit,photos}
+  return {state,client,emit,photos,subscriptions,channels}
 }
 function device(client) {
-  const cache={};let storageWrites=0;const events={}
+  const cache={};let storageWrites=0;const events={};const polls=new Map();let pollId=0
+  const document={visibilityState:'visible',addEventListener(name,callback){events[name]=callback}}
   function load(name) {
     if(name==='react')return {useSyncExternalStore(subscribe,getSnapshot){subscribe(()=>{});return getSnapshot()}}
     if(name==='@/lib/supabase/client')return {createClient:()=>client}
@@ -86,12 +88,63 @@ function device(client) {
     const file=new URL(name.replace('@/lib/','')+'.ts',import.meta.url)
     const source=ts.transpileModule(readFileSync(file,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2020}}).outputText
     const exports={};cache[name]=exports
-    runInNewContext(source,{exports,require:load,crypto,Intl,Date,setTimeout,clearTimeout,document:{visibilityState:'visible'},window:{addEventListener(name,callback){events[name]=callback},setInterval(){},localStorage:{getItem(){storageWrites++;throw new Error('Local storage is forbidden')},setItem(){storageWrites++;throw new Error('Local storage is forbidden')}}}})
+    runInNewContext(source,{exports,require:load,crypto,Intl,Date,setTimeout,clearTimeout,document,window:{addEventListener(name,callback){events[name]=callback},setTimeout(callback,delay){polls.set(++pollId,{callback,delay});return pollId},clearTimeout(id){polls.delete(id)},localStorage:{getItem(){storageWrites++;throw new Error('Local storage is forbidden')},setItem(){storageWrites++;throw new Error('Local storage is forbidden')}}}})
     return exports
   }
-  return {board:load('@/lib/production-board'),writes:()=>storageWrites,events}
+  return {board:load('@/lib/production-board'),writes:()=>storageWrites,events,document,polls}
 }
 async function waitFor(check){for(let i=0;i<100;i++){if(check())return;await new Promise(resolve=>setTimeout(resolve,5))}assert.fail('State did not synchronize')}
+
+test('branch realtime scopes inserts/updates, ignores unrelated deletes, and rebuilds after access changes',async()=>{
+ const b=backend(true,true);b.state.profiles[0].role='admin';b.state.profiles[0].branch_id='salatiga'
+ const a=device(b.client);a.board.useOnlineConnection()
+ await waitFor(()=>a.board.useOnlineConnection().realtime)
+ let reads=0;const rpc=b.client.rpc;b.client.rpc=async(...args)=>{if(args[0]==='printex_sync_changes')reads++;return rpc(...args)}
+ await new Promise(resolve=>setTimeout(resolve,350));reads=0
+ const current=b.channels.at(-1)
+ const subscriptions=b.subscriptions.filter(item=>item.channel===current)
+ assert.equal(subscriptions.find(item=>item.filter.table==='orders'&&item.filter.event==='UPDATE').filter.filter,'branch_id=eq.salatiga')
+ assert.equal(subscriptions.find(item=>item.filter.table==='profiles'&&item.filter.event==='UPDATE').filter.filter,'id=eq.user')
+ const deletion=subscriptions.find(item=>item.filter.table==='orders'&&item.filter.event==='DELETE')
+ deletion.callback({old:{id:'another-branch'}})
+ await new Promise(resolve=>setTimeout(resolve,350));assert.equal(reads,0)
+ b.state.profiles[0].role='central_owner';await a.board.refreshOnlineData()
+ assert.equal(current.removed,true)
+ assert.ok(b.subscriptions.some(item=>item.channel===b.channels.at(-1)&&item.filter.table==='orders'&&item.filter.event==='*'&&!item.filter.filter))
+ b.state.profiles[0].role='admin'
+ b.state.profiles[0].branch_id='salatiga'
+ await a.board.refreshOnlineData()
+ assert.equal(b.channels.length,3)
+})
+
+test('a primary-key-only delete removes a cached branch order through incremental sync',async()=>{
+ const b=backend(true,true);b.state.profiles[0].role='admin';b.state.profiles[0].branch_id='salatiga'
+ const a=device(b.client);a.board.useOnlineConnection()
+ await waitFor(()=>a.board.useOnlineConnection().realtime)
+ await a.board.addOrder({customerName:'Test',productionType:'DTF',meter:1,customerType:'regular',orderDate:'2026-10-01',dueDate:'2026-10-02',notes:''},'delete-me')
+ assert.equal(a.board.useAllOrders().length,1)
+ b.state.orders=[]
+ b.subscriptions.find(item=>item.channel===b.channels.at(-1)&&item.filter.table==='orders'&&item.filter.event==='DELETE').callback({old:{id:'delete-me'}})
+ await waitFor(()=>a.board.useAllOrders().length===0)
+})
+
+test('healthy realtime reduces polling, hidden tabs make no automatic reads and reopening catches up',async()=>{
+ const b=backend(true,true),a=device(b.client);a.board.useOnlineConnection()
+ await waitFor(()=>a.board.useOnlineConnection().realtime)
+ await new Promise(resolve=>setTimeout(resolve,350))
+ assert.deepEqual([...a.polls.values()].map(p=>p.delay),[300000])
+ b.channels.at(-1).status('CHANNEL_ERROR')
+ assert.deepEqual([...a.polls.values()].map(p=>p.delay),[30000])
+ b.channels.at(-1).status('SUBSCRIBED')
+ let reads=0;const rpc=b.client.rpc;b.client.rpc=async(...args)=>{if(args[0]==='printex_sync_changes')reads++;return rpc(...args)}
+ a.document.visibilityState='hidden';a.events.visibilitychange()
+ assert.equal(a.polls.size,0)
+ b.emit();a.events.focus();a.events.online()
+ await new Promise(resolve=>setTimeout(resolve,350));assert.equal(reads,0)
+ a.document.visibilityState='visible';a.events.visibilitychange();a.events.focus()
+ await waitFor(()=>reads===1)
+ assert.deepEqual([...a.polls.values()].map(p=>p.delay),[300000])
+})
 
 test('photo upload, replacement and removal synchronize while failure preserves the existing photo', async () => {
   const api = backend(), a = device(api.client), b = device(api.client)
@@ -367,4 +420,37 @@ test('an older branch response cannot reset a newer branch selection', async () 
  await Promise.all([refresh,selection])
  assert.equal(a.board.useOnlineConnection().branchId,'semarang')
  assert.equal(a.board.useOnlineConnection().state,'ready')
+})
+test('incremental updates retain unaffected order objects and history arrays',async()=>{
+ const api=backend(false,true),a=device(api.client)
+ for(const id of ['a','b'])api.state.orders.push({id,spk_code:id,current_step_id:'0',version:1,production_type:'DTF',meter:1})
+ a.board.useOnlineConnection()
+ await waitFor(()=>a.board.useOnlineConnection().state==='ready')
+ await a.board.refreshOnlineData()
+ assert.equal(a.board.useOnlineConnection().syncMode,'incremental')
+ const initial=a.board.useAllOrders(),history=a.board.useProcessHistory()
+ api.state.orders[0].meter=10
+ await a.board.refreshOnlineData()
+ assert.equal(a.board.useAllOrders().find(row=>row.id==='b'),initial.find(row=>row.id==='b'))
+ assert.notEqual(a.board.useAllOrders().find(row=>row.id==='a'),initial.find(row=>row.id==='a'))
+ assert.equal(a.board.useProcessHistory(),history)
+ const orders=a.board.useAllOrders()
+ api.state.process_history.push({id:'event-a',order_id:'a',step_id:'0',event_kind:'entered',occurred_at:'2026-10-01T00:00:00Z'})
+ await a.board.refreshOnlineData()
+ assert.equal(a.board.useAllOrders(),orders)
+ assert.notEqual(a.board.useProcessHistory(),history)
+})
+test('incremental capability recovers after migration becomes available without page reload',async()=>{
+ const api=backend(false,true),a=device(api.client),rpc=api.client.rpc
+ let installed=false
+ api.client.rpc=async(name,args)=>name==='printex_sync_changes'&&!installed?{error:{code:'PGRST202'}}:rpc(name,args)
+ a.board.useOnlineConnection()
+ await waitFor(()=>a.board.useOnlineConnection().state==='ready')
+ assert.equal(a.board.useOnlineConnection().syncMode,'full')
+ installed=true
+ await a.board.refreshOnlineData()
+ assert.equal(a.board.useOnlineConnection().syncMode,'incremental')
+ const orders=a.board.useAllOrders()
+ await a.board.refreshOnlineData()
+ assert.equal(a.board.useAllOrders(),orders)
 })

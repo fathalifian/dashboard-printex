@@ -70,3 +70,21 @@ test('finished orders missing a start or completion timestamp do not get fabrica
   assert.equal(orderTiming({...base,board_stage:'done'},move('printing','done',5),Date.parse(at(12))).totalMilliseconds,null)
   assert.equal(orderTiming({...base,board_stage:'done'},move('incoming','design',2),Date.parse(at(12))).totalMilliseconds,null)
 })
+const {createOrderTimingReader}=load('./process-timing')
+test('cached timing matches full calculation across ticks, future events, revisits and clock rollback',()=>{
+ const histories=[[],move(null,'design',1),[...move(null,'design',1),...move('design','printing',3),...move('printing','design',5)], [...move(null,'design_done',1),...move('design_done','printing',2),...move('printing','done',6)]]
+ for(const board_stage of ['incoming','design','printing','done','archive'])for(const history of histories){
+  const order={...base,board_stage},read=createOrderTimingReader(order,history)
+  for(const hour of [0,1,1.5,2,2.5,3,4,5,5.5,6,10,2,11])assert.deepEqual(read(Date.parse(at(hour))),orderTiming(order,history,Date.parse(at(hour))))
+ }
+})
+test('ordinary timer ticks do not scan history again and never mutate prior snapshots',()=>{
+ let scans=0
+ const history=new Proxy(move(null,'design',1),{get(target,key,receiver){if(key==='filter')scans++;return Reflect.get(target,key,receiver)}})
+ const read=createOrderTimingReader({...base,board_stage:'design'},history)
+ const first=read(Date.parse(at(2))),before=structuredClone(first),initialScans=scans
+ for(let second=1;second<=60;second++)read(Date.parse(at(2))+second*1000)
+ assert.equal(scans,initialScans)
+ assert.deepEqual(first,before)
+ assert.equal(read(Date.parse(at(3))).stages.design.milliseconds,2*3600000)
+})

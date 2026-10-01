@@ -91,7 +91,7 @@ export default function Header({ sidebarCollapsed, onToggleSidebar }: { sidebarC
         <button type="button" className="workspace-sidebar-toggle" onClick={onToggleSidebar} aria-expanded={!sidebarCollapsed} aria-controls="workspace-navigation" aria-label={sidebarCollapsed ? 'Perluas sidebar' : 'Perkecil sidebar'} title={sidebarCollapsed ? 'Perluas sidebar' : 'Perkecil sidebar'}>
           {sidebarCollapsed ? <PanelLeftOpen size={18} /> : <PanelLeftClose size={18} />}
         </button>
-        <h1 className="text-lg font-semibold text-slate-900">{title}</h1>
+        <h1 className="page-title">{title}</h1>
       </div>
 
       <div className="flex items-center gap-3">

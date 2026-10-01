@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import { BOARD_STAGE_META, useAllOrders, useOnlineConnection, useProcessHistory } from '@/lib/production-board'
-import { productionFlow } from '@/lib/production-flow'
+import { createProductionFlowReader } from '@/lib/production-flow'
 import DateRangeFilter, { todayRange } from '@/components/date-range-filter'
 import { jakartaDate, type ProcessStage } from '@/lib/process-metrics'
 import ProductionRoute from './production-route'
@@ -29,7 +29,8 @@ export default function ProductionFlow({ selectedStage, onSelectStage }: { selec
   const today = now ? jakartaDate(new Date(now)) : range.start
   const start = range.period === 'today' ? today : range.start
   const end = range.period === 'today' ? today : range.end
-  const rows = useMemo(() => productionFlow(orders, history, now, { start, end }), [orders, history, now, start, end])
+  const readFlow = useMemo(() => createProductionFlowReader(orders, history, { start, end }), [orders, history, start, end])
+  const rows = useMemo(() => readFlow(now), [readFlow, now])
   return <section aria-labelledby="production-flow-title" className="rounded-xl border border-slate-200 bg-white">
     <div className="flex flex-wrap items-center justify-between gap-4 border-b border-slate-100 px-5 py-4">
       <h2 id="production-flow-title" className="font-semibold text-slate-900">Alur produksi</h2>

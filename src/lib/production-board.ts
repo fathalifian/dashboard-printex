@@ -1,6 +1,7 @@
 'use client'
 
 import { useSyncExternalStore } from 'react'
+import { recordRoomNavigation } from '@/lib/room-navigation'
 import { createClient } from '@/lib/supabase/client'
 import { PROCESS_STAGES, type ProcessEvent } from '@/lib/process-metrics'
 import { ACCESS_SCHEMA_VERSION, canManageOrders, canMoveBetweenStages, normalizeRole } from '@/lib/access-control'
@@ -25,7 +26,7 @@ export type BoardOrder = {
   board_stage:BoardStageId;color_token:string;version:number;photo_path:string|null;archive:{archivedAt:string;deliveryMethod:DeliveryMethod;finalizedAt?:string}|null
 }
 export type Branch = {id:string;name:string}
-type Connection = {lastSyncedAt?:number;branches?:Branch[];branchId?:string|null;central?:boolean;state:'loading'|'ready'|'error';realtime:boolean;busy:boolean;error:string;profile:{id:string;full_name:string;role:string}|null}
+type Connection = {syncMode?:'incremental'|'full';lastSyncedAt?:number;branches?:Branch[];branchId?:string|null;central?:boolean;state:'loading'|'ready'|'error';realtime:boolean;busy:boolean;error:string;profile:{id:string;full_name:string;role:string}|null}
 const INITIAL_CONNECTION: Connection = {state:'loading',realtime:false,busy:false,error:'',profile:null}
 const EMPTY_ORDERS: BoardOrder[] = []
 const EMPTY_HISTORY: ProcessEvent[] = []
@@ -36,7 +37,6 @@ let multiBranch = false
 let selectedBranch: string | null | undefined
 let branchRevision = 0
 let syncCursor: string | null = null
-let syncAvailable = true
 let rowCache: Record<string, Record<string, unknown>[]> = {}
 let cacheScope = ''
 let started = false
@@ -44,8 +44,10 @@ let client: ReturnType<typeof createClient> | undefined
 let fetching: Promise<void> | undefined
 let refreshAgain = false
 let refreshTimer: ReturnType<typeof setTimeout> | undefined
-let lastPhotoCleanup = 0
-let photoCleanupRunning = false
+let realtimeEnabled = false
+let realtimeChannel: ReturnType<ReturnType<typeof createClient>['channel']> | undefined
+let realtimeScope = ''
+let pollTimer: number | undefined
 const listeners = new Set<() => void>()
 function emit() { listeners.forEach(listener => listener()) }
 function setConnection(update: Partial<Connection>) { connection = {...connection,...update}; emit() }
@@ -94,9 +96,9 @@ async function fetchSnapshot() {
   const reuse = cacheScope === scope
   let cursor: string | null = null
   let changes: {table: string; id: string}[] | null = null
-  if (syncAvailable) {
+  {
     const { data, error } = await db().rpc('printex_sync_changes', { p_after: reuse ? syncCursor : null, p_branch: snapshotBranch ?? null })
-    if (error?.code === 'PGRST202' || error?.code === '42883') syncAvailable = false // Compatible rollout before migration 0021.
+    if (error?.code === 'PGRST202' || error?.code === '42883') { /* Retry on the next refresh, so an installed migration is picked up without reloading. */ }
     else if (error) throw error
     else { cursor = data.cursor; if (reuse && syncCursor !== null && !data.reset) changes = data.changes }
   }
@@ -114,8 +116,7 @@ async function fetchSnapshot() {
   if (revision !== branchRevision) { refreshAgain=true; return }
   if (reuse && snapshots.every((rows,index) => rows === rowCache[tables[index]])) {
     syncCursor = cursor
-    setConnection({state:'ready',lastSyncedAt:Date.now(),error:'',profile:{...profile,role}})
-    schedulePhotoCleanup(role)
+    setConnection({state:'ready',syncMode:cursor === null ? 'full' : 'incremental',lastSyncedAt:Date.now(),error:'',profile:{...profile,role}})
     return
   }
   const [orderRows,customers,steps,eventRows] = snapshots
@@ -127,7 +128,13 @@ async function fetchSnapshot() {
     if(!found) throw new Error('Ada order/riwayat dengan tahap tidak valid. Periksa database.')
     return found
   }
-  const nextOrders: BoardOrder[] = orderRows.map(row=>{
+  const previousOrderRows = new Map((reuse ? rowCache.orders : []).map(row => [row.id, row]))
+  const previousCustomers = new Map((reuse ? rowCache.customers : []).map(row => [row.id, row]))
+  const previousSteps = new Map((reuse ? rowCache.production_steps : []).map(row => [row.id, row]))
+  const previousOrders = new Map(orders.map(order => [order.id, order]))
+  const nextOrders: BoardOrder[] = reuse && orderRows === rowCache.orders && customers === rowCache.customers && steps === rowCache.production_steps ? orders : orderRows.map(row=>{
+    const previous = previousOrders.get(String(row.id))
+    if (previous && previousOrderRows.get(row.id) === row && previousCustomers.get(row.customer_id) === customerMap.get(row.customer_id) && previousSteps.get(row.current_step_id) === stepMap.get(row.current_step_id)) return previous
     const stage=stageFromStep(row.current_step_id), meta=BOARD_STAGE_META[stage], customer=customerMap.get(row.customer_id)
     return {id:String(row.id),branch_id:row.branch_id?String(row.branch_id):undefined,spk_code:String(row.spk_code),customer:{name:String(customer?.name??''),phone:String(customer?.phone??'')},
       production_type:String(row.production_type),meter:Number(row.meter),paper_width:row.paper_width == null ? null : String(Number(row.paper_width)),customer_type:String(row.customer_type),order_state:meta.orderState,
@@ -135,36 +142,84 @@ async function fetchSnapshot() {
       notes:String(row.notes??''),created_at:String(row.created_at),version:Number(row.version),photo_path:row.photo_path?String(row.photo_path):null,
       archive:row.archived_at?{archivedAt:String(row.archived_at),deliveryMethod:row.delivery_method as DeliveryMethod,finalizedAt:row.archive_finalized_at?String(row.archive_finalized_at):undefined}:null}
   })
-  const nextHistory: ProcessEvent[] = eventRows.map(row=>({branchId:row.branch_id?String(row.branch_id):undefined,id:String(row.id),orderId:String(row.order_identity??row.order_id),spkCode:String(row.spk_code),customerName:String(row.customer_name??''),
-    stage:stageFromStep(row.step_id),kind:row.event_kind as ProcessEvent['kind'],occurredAt:String(row.occurred_at),actorName:row.actor_name?String(row.actor_name):null}))
+  const previousEventRows = new Map((reuse ? rowCache.process_history : []).map(row => [row.id, row]))
+  const previousEvents = new Map(history.map(event => [event.id, event]))
+  const nextHistory: ProcessEvent[] = reuse && eventRows === rowCache.process_history && steps === rowCache.production_steps ? history : eventRows.map(row=>{
+    const previous = previousEvents.get(String(row.id))
+    if (previous && previousEventRows.get(row.id) === row && previousSteps.get(row.step_id) === stepMap.get(row.step_id)) return previous
+    return ({branchId:row.branch_id?String(row.branch_id):undefined,id:String(row.id),orderId:String(row.order_identity??row.order_id),spkCode:String(row.spk_code),customerName:String(row.customer_name??''),
+    stage:stageFromStep(row.step_id),kind:row.event_kind as ProcessEvent['kind'],occurredAt:String(row.occurred_at),actorName:row.actor_name?String(row.actor_name):null})})
   if (revision !== branchRevision) { refreshAgain=true; return }
   rowCache = Object.fromEntries(tables.map((table,index) => [table,snapshots[index]]))
   cacheScope = scope; syncCursor = cursor
-  orders=nextOrders;active=orders.filter(order=>order.board_stage!=='archive');production=orders.filter(order=>!order.archive?.finalizedAt);history=nextHistory
-  setConnection({state:'ready',lastSyncedAt:Date.now(),error:'',profile:{...profile,role}})
-  schedulePhotoCleanup(role)
-}
-function schedulePhotoCleanup(role: string) {
-  if (canManageOrders(role) && !photoCleanupRunning && Date.now() - lastPhotoCleanup > 5 * 60 * 1000) {
-    lastPhotoCleanup = Date.now(); photoCleanupRunning = true
-    void cleanupOrderPhotos().catch(() => {}).finally(() => { photoCleanupRunning = false })
+  if (orders !== nextOrders) {
+    orders=nextOrders;active=orders.filter(order=>order.board_stage!=='archive');production=orders.filter(order=>!order.archive?.finalizedAt)
   }
+  history=nextHistory
+  setConnection({state:'ready',syncMode:cursor === null ? 'full' : 'incremental',lastSyncedAt:Date.now(),error:'',profile:{...profile,role}})
 }
 export async function refreshOnlineData() {
   // An explicit refresh also covers notifications still waiting in the batch.
   if (refreshTimer !== undefined) { clearTimeout(refreshTimer); refreshTimer = undefined }
   if(fetching) { refreshAgain=true; return fetching }
   fetching=(async()=>{do {refreshAgain=false;await fetchSnapshot()}while(refreshAgain)})()
-  try {await fetching} catch(error) {syncCursor=null;rowCache={};cacheScope='';setConnection({state:'error',error:errorMessage(error)});throw error} finally {fetching=undefined}
+  try {await fetching} catch(error) {syncCursor=null;rowCache={};cacheScope='';setConnection({state:'error',error:errorMessage(error)});throw error} finally {
+    fetching=undefined
+    if (realtimeEnabled && connection.state === 'ready') ensureRealtime()
+    if (realtimeEnabled) schedulePoll()
+  }
 }
 function scheduleRefresh() {
   // One transaction can update orders, customers and several history rows.
   // Collect these notifications instead of fetching a full snapshot per row.
-  if (refreshTimer !== undefined) return
+  if (document.visibilityState !== 'visible' || refreshTimer !== undefined) return
   refreshTimer = setTimeout(() => {
     refreshTimer = undefined
-    void refreshOnlineData().catch(() => {})
+    if (document.visibilityState === 'visible') void refreshOnlineData().catch(() => {})
   }, 300)
+}
+function schedulePoll() {
+  if (pollTimer !== undefined) window.clearTimeout(pollTimer)
+  pollTimer = undefined
+  if (document.visibilityState !== 'visible') return
+  pollTimer = window.setTimeout(() => {
+    pollTimer = undefined
+    if (document.visibilityState === 'visible') void refreshOnlineData().catch(() => {})
+  }, connection.realtime && connection.state === 'ready' ? 300000 : 30000)
+}
+function ensureRealtime() {
+  // Central owners retain all-branch notifications; branch staff receive their own branch only.
+  const branch = multiBranch && !connection.central ? connection.branchId : null
+  const scope = `${connection.profile?.id}:${branch ?? 'all'}`
+  if (realtimeChannel && realtimeScope === scope) return
+  const previous = realtimeChannel
+  realtimeScope = scope
+  const channel = db().channel(`printex-board-${crypto.randomUUID()}`)
+  realtimeChannel = channel
+  if (previous) void db().removeChannel(previous)
+  setConnection({realtime:false})
+  for (const table of ['orders','customers','process_history','production_steps','profiles']) {
+    const filter = table === 'profiles' ? `id=eq.${connection.profile!.id}`
+      : branch && table !== 'production_steps' ? `branch_id=eq.${branch}` : undefined
+    const notify = () => { if (realtimeChannel === channel) scheduleRefresh() }
+    if (!filter) channel.on('postgres_changes',{event:'*',schema:'public',table},notify)
+    else {
+      channel.on('postgres_changes',{event:'INSERT',schema:'public',table,filter},notify)
+      channel.on('postgres_changes',{event:'UPDATE',schema:'public',table,filter},notify)
+      // DELETE may carry only its primary key. Keep this subscription unfiltered,
+      // but ignore IDs absent from the authorized snapshot before doing any work.
+      channel.on('postgres_changes',{event:'DELETE',schema:'public',table},payload => {
+        const id = payload.old.id
+        if (table === 'profiles' ? id === connection.profile?.id : rowCache[table]?.some(row => row.id === id)) notify()
+      })
+    }
+  }
+  channel.subscribe(status => {
+    if (realtimeChannel !== channel) return
+    setConnection({realtime:status === 'SUBSCRIBED'})
+    schedulePoll()
+    if (status === 'SUBSCRIBED') scheduleRefresh()
+  })
 }
 async function start() {
   try {
@@ -181,17 +236,17 @@ async function start() {
     multiBranch = ready.branches_enabled === true
     const requiredTables=['orders','customers','production_steps','process_history','profiles']
     if(requiredTables.some(table=>!ready.realtime_tables?.includes(table))) throw new Error('Realtime belum diaktifkan untuk seluruh tabel.')
-    await refreshOnlineData()
-    const channel=db().channel(`printex-board-${crypto.randomUUID()}`)
-    for(const table of requiredTables) channel.on('postgres_changes',{event:'*',schema:'public',table},scheduleRefresh)
-    channel.subscribe(status=>{
-      setConnection({realtime:status==='SUBSCRIBED'})
-      if(status==='SUBSCRIBED') void refreshOnlineData().catch(()=>{})
+    realtimeEnabled = true
+    const resume = () => { if (document.visibilityState === 'visible') scheduleRefresh() }
+    window.addEventListener('online',resume)
+    window.addEventListener('offline',()=>{setConnection({state:'error',realtime:false,error:'Koneksi terputus. Perubahan dinonaktifkan sampai terhubung kembali.'});schedulePoll()})
+    window.addEventListener('focus',resume)
+    document.addEventListener('visibilitychange',()=>{
+      if (refreshTimer !== undefined) {clearTimeout(refreshTimer);refreshTimer=undefined}
+      schedulePoll()
+      resume()
     })
-    window.addEventListener('online',()=>{void refreshOnlineData().catch(()=>{})})
-    window.addEventListener('offline',()=>setConnection({state:'error',realtime:false,error:'Koneksi terputus. Perubahan dinonaktifkan sampai terhubung kembali.'}))
-    window.addEventListener('focus',()=>{void refreshOnlineData().catch(()=>{})})
-    window.setInterval(()=>{if(document.visibilityState==='visible') void refreshOnlineData().catch(()=>{})},30000)
+    await refreshOnlineData()
   } catch(error) {setConnection({state:'error',error:errorMessage(error)})}
 }
 function subscribe(listener:()=>void) {listeners.add(listener);if(!started){started=true;void start()}return()=>{listeners.delete(listener)}}
@@ -264,7 +319,7 @@ export async function saveOrderPhoto(id: string, file: File | null) {
       path = `${id}/${crypto.randomUUID()}.webp`
     }
     if (file && path) {
-      const { error } = await storage.upload(path, file, { contentType: file.type, upsert: false })
+      const { error } = await storage.upload(path, file, { contentType: file.type, cacheControl: '3600', upsert: false })
       if (error) throw error
     }
     const { error } = await db().rpc('printex_set_order_photo', { p_order_id: id, p_expected_version: order.version, p_path: path })
@@ -284,9 +339,11 @@ export async function saveOrderPhoto(id: string, file: File | null) {
 }
 
 
-export async function selectBranch(id: string | null) {
+export async function selectBranch(id: string | null, options: { history?: boolean; room?: 'all' | null } = {}) {
   if (!multiBranch || connection.busy || connection.state !== 'ready') return
   if (id === null ? !connection.central : !connection.branches?.some(branch => branch.id === id)) return
+  if (options.history !== false) recordRoomNavigation(id, options.room ?? null)
+  if (selectedBranch === id) return
   selectedBranch = id
   branchRevision++
   orders = active = production = EMPTY_ORDERS

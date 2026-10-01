@@ -79,7 +79,7 @@ export default function DashboardPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-wrap items-center justify-between gap-3"><div><h2 className="text-2xl font-semibold tracking-tight text-slate-900">Dashboard produksi</h2><p className="mt-1 text-sm text-slate-500">Pantau progres dan tenggat dari {orders.length} order di board.</p></div>{canViewDetails && <Link href="/orders/new" className="inline-flex items-center gap-2 rounded-xl bg-brand-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-brand-700"><PlusCircle className="h-4 w-4" /> Tambah Order</Link>}</div>
+      <div className="flex flex-wrap items-center justify-between gap-3"><div><h2 className="page-title">Dashboard produksi</h2></div>{canViewDetails && <Link href="/orders/new" className="inline-flex items-center gap-2 rounded-xl bg-brand-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-brand-700"><PlusCircle className="h-4 w-4" /> Tambah Order</Link>}</div>
 
       <DailyOutput />
       <ProductionFlow selectedStage={stage} onSelectStage={setStage} />

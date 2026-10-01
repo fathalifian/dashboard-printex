@@ -9,14 +9,12 @@ export function shiftDate(day: string, offset: number) {
 }
 
 export function centralDashboard(orders: BoardOrder[], history: ProcessEvent[], branches: Branch[], start: string, end: string, now: Date) {
-  const today = jakartaDate(now)
-  const knownBranches = new Set(branches.map(branch => branch.id))
-  const scoped = orders.filter(order => order.branch_id && knownBranches.has(order.branch_id))
-  const byId = new Map(scoped.map(order => [order.id, order]))
-  const branchName = new Map(branches.map(branch => [branch.id, branch.name]))
-  const pending = scoped.filter(order => order.order_date >= start && order.order_date <= end && order.order_state !== 'completed' && order.order_state !== 'cancelled' && !order.archive?.finalizedAt)
-  const overdue = pending.filter(order => order.due_at && order.due_at < today).sort((a,b) => a.due_at.localeCompare(b.due_at))
-  const dueToday = pending.filter(order => order.due_at >= start && order.due_at <= end)
+  const summary = centralDashboardSummary(orders, history, branches, start, end, jakartaDate(now))
+  return {...summary, longest: longestPendingOrders(summary.pendingOrders, history, now)}
+}
+
+export function longestPendingOrders(pending: BoardOrder[], history: ProcessEvent[], now: Date) {
+  const byId = new Map(pending.map(order => [order.id, order]))
   const latestEntry = new Map<string, number>()
   for (const event of history) {
     const order = byId.get(event.orderId)
@@ -25,10 +23,20 @@ export function centralDashboard(orders: BoardOrder[], history: ProcessEvent[], 
       latestEntry.set(order.id, Math.max(latestEntry.get(order.id) ?? 0, time))
     }
   }
-  const longest = pending.flatMap(order => {
+  return pending.flatMap(order => {
     const since = latestEntry.get(order.id) ?? (order.board_stage === 'incoming' ? Date.parse(order.created_at) : NaN)
     return Number.isFinite(since) && since <= now.getTime() ? [{order, milliseconds: now.getTime() - since}] : []
   }).sort((a,b) => b.milliseconds-a.milliseconds).slice(0,5)
+ }
+
+export function centralDashboardSummary(orders: BoardOrder[], history: ProcessEvent[], branches: Branch[], start: string, end: string, today: string) {
+  const knownBranches = new Set(branches.map(branch => branch.id))
+  const scoped = orders.filter(order => order.branch_id && knownBranches.has(order.branch_id))
+  const byId = new Map(scoped.map(order => [order.id, order]))
+  const branchName = new Map(branches.map(branch => [branch.id, branch.name]))
+  const pending = scoped.filter(order => order.order_date >= start && order.order_date <= end && order.order_state !== 'completed' && order.order_state !== 'cancelled' && !order.archive?.finalizedAt)
+  const overdue = pending.filter(order => order.due_at && order.due_at < today).sort((a,b) => a.due_at.localeCompare(b.due_at))
+  const dueToday = pending.filter(order => order.due_at >= start && order.due_at <= end)
   const completions = printCompletions(history)
   const output = outputForCompletions(scoped, completions, start, end)
   const rows = branches.map(branch => {
@@ -61,5 +69,5 @@ export function centralDashboard(orders: BoardOrder[], history: ProcessEvent[], 
     if (date>=start && date<=end) activity.push({id:'archive-'+order.id,orderId:order.id,spk:order.spk_code,label:'Diarsipkan',at,branch:branchName.get(order.branch_id!)!,actor:null})
   }
   activity.sort((a,b)=> Date.parse(b.at)-Date.parse(a.at) || a.id.localeCompare(b.id))
-  return {today,output,rows,pending:pending.length,overdue,dueToday,longest,trend,activity:activity.slice(0,8)}
+  return {today,output,rows,pending:pending.length,overdue,dueToday,pendingOrders:pending,trend,activity:activity.slice(0,8)}
 }

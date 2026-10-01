@@ -6,6 +6,10 @@ export type TimedOrder = {
 }
 export const TIMED_STAGES = ['design','design_done','printing','press'] as const
 export function orderTiming(order: TimedOrder, history: ProcessEvent[], now: number) {
+  return calculateTiming(order, history, now).timing
+}
+
+function calculateTiming(order: TimedOrder, history: ProcessEvent[], now: number) {
   const events = history.filter(e=>e.orderId===order.id && Number.isFinite(Date.parse(e.occurredAt)))
     .sort((a,b)=>Date.parse(a.occurredAt)-Date.parse(b.occurredAt))
   const startedAt = events.find(e=>(e.stage==='design'||e.stage==='design_done')&&e.kind==='entered')?.occurredAt ?? null
@@ -46,7 +50,31 @@ export function orderTiming(order: TimedOrder, history: ProcessEvent[], now: num
     row.running=!finished && open.stage===order.board_stage
     if(completedAt)row.lastExit=completedAt
   }
-  return { stages, totalMilliseconds:Number.isFinite(startAt)&&(!finished||completedAt)?Math.max(0,end-startAt):null, finished, startedAt, completedAt }
+  return { ticking: !finished ? open : null, timing: { stages, totalMilliseconds:Number.isFinite(startAt)&&(!finished||completedAt)?Math.max(0,end-startAt):null, finished, startedAt, completedAt } }
+}
+
+// Compile a snapshot only when history changes, a future event becomes visible,
+// or the clock moves backwards. Ordinary ticks only advance elapsed durations.
+export function createOrderTimingReader(order: TimedOrder, history: ProcessEvent[]) {
+  const timestamps = history.filter(event => event.orderId === order.id)
+    .map(event => Date.parse(event.occurredAt)).filter(Number.isFinite).sort((a,b) => a-b)
+  let snapshot: ReturnType<typeof calculateTiming> | undefined
+  let anchor = 0
+  let nextEvent = Infinity
+  return (now: number): ReturnType<typeof orderTiming> => {
+    if (!snapshot || (!snapshot.timing.finished && (now < anchor || now >= nextEvent))) {
+      snapshot = calculateTiming(order, history, now)
+      anchor = now
+      nextEvent = timestamps.find(time => time > now) ?? Infinity
+    }
+    const { timing, ticking } = snapshot
+    if (timing.finished || now === anchor) return timing
+    const stages = ticking ? { ...timing.stages, [ticking.stage]: {
+      ...timing.stages[ticking.stage],
+      milliseconds: timing.stages[ticking.stage].milliseconds + Math.max(0, now-ticking.at) - Math.max(0, anchor-ticking.at),
+    } } : timing.stages
+    return { ...timing, stages, totalMilliseconds: timing.totalMilliseconds === null ? null : Math.max(0, now-Date.parse(timing.startedAt!)) }
+  }
 }
 
 export function formatDuration(milliseconds:number|null) {

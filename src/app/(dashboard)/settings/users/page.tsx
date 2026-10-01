@@ -51,7 +51,7 @@ export default function UsersPage() {
     try {
       const result=await addManagedUser({...form,branchId:form.branchId||undefined})
       if(result.error){setMessage(result.error);return}
-      setMessage('Akun berhasil dibuat dan dapat digunakan sesuai status aksesnya.')
+      setMessage('Akun berhasil dibuat.')
       setForm({ ...empty, branchId: connection.branchId ?? '' });await refresh()
     } catch {setMessage('Permintaan gagal. Periksa koneksi dan muat ulang daftar akun sebelum mencoba lagi.')}
     finally {setBusy(false);setForm(value=>({...value,password:''}))}
@@ -82,7 +82,6 @@ export default function UsersPage() {
           <label className="flex items-center gap-2 text-sm text-slate-700"><input type="checkbox"  checked={form.active} onChange={e=>setForm({...form,active:e.target.checked})}/>Akun aktif</label>
           <div className="flex items-center gap-3"><button type="submit" className="rounded-xl bg-brand-600 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50">{busy?'Menyimpan...':'Tambah Akun'}</button></div>
         </fieldset>
-        <p className="mt-4 text-xs text-slate-500">Owner Pusat memiliki seluruh akses Owner Cabang pada setiap cabang melalui satu akun. Daftar akun mengikuti cabang aktif. Owner Cabang mengelola Admin dan Operator cabangnya. Owner Cabang dan Admin mengelola order serta laporan pada cabang yang ditetapkan. Operator memantau Dashboard dan Board Produksi cabangnya serta menjalankan tahap produksi yang diizinkan.</p>
       </form>}
       {Object.entries(roles).filter(([role]) => {
         const order = Object.keys(roles)

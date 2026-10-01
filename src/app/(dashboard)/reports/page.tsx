@@ -1,11 +1,13 @@
 'use client'
 
 import { useMemo, useState } from 'react'
+import ReportRooms from '@/components/report-rooms'
+import Link from 'next/link'
 import DateRangeFilter, { todayRange } from '@/components/date-range-filter'
 import { ProcessTimingReport } from '@/components/production-timers'
 import { dailyOutput } from '@/lib/daily-output'
 import { Download } from 'lucide-react'
-import { BOARD_STAGE_META, useAllOrders, useProcessHistory } from '@/lib/production-board'
+import { BOARD_STAGE_META, useAllOrders, useProcessHistory, useOnlineConnection } from '@/lib/production-board'
 import { jakartaDate, PROCESS_STAGES, summarizeEvents, processReportEvents, type ProcessStage } from '@/lib/process-metrics'
 
 function shiftDay(day: string, amount: number) {
@@ -19,13 +21,16 @@ const eventLabel = (kind: string) => kind === 'completed' ? 'Selesai' : 'Masuk'
 export default function ProcessReportsPage() {
   const orders = useAllOrders()
   const history = useProcessHistory()
+  const connection = useOnlineConnection()
+  const branchName = (branchId?: string) => connection.branches?.find(branch => branch.id === branchId)?.name ?? 'Belum tercatat'
+  const eventBranch = (event: typeof history[number]) => branchName(event.branchId ?? orders.find(order => order.id === event.orderId)?.branch_id)
   const [stage, setStage] = useState<ProcessStage>('incoming')
   const [range,setRange] = useState(todayRange)
   const {start,end} = range
   const isArchive = stage === 'archive'
   const invalid = !start || !end || start > end || (Date.parse(end) - Date.parse(start)) / 86400000 > 92
   const source = useMemo(() => processReportEvents(history, orders), [history, orders])
-  const stats = summarizeEvents(source, stage, invalid ? '9999' : start, invalid ? '0000' : end)
+  const stats = useMemo(() => summarizeEvents(source, stage, invalid ? '9999' : start, invalid ? '0000' : end), [source, stage, invalid, start, end])
   const days: string[] = []
   if (!invalid) for (let day = start; day <= end; day = shiftDay(day, 1)) days.push(day)
   const countsByDay = new Map<string, { entered: number; completed: number }>()
@@ -38,18 +43,18 @@ export default function ProcessReportsPage() {
   }
   const chart = days.map(day => ({ day, ...(countsByDay.get(day) ?? { entered: 0, completed: 0 }) }))
   const max = Math.max(4, ...chart.flatMap(day => [day.entered, day.completed]))
-  const output = dailyOutput(orders, history, invalid ? '9999' : start, invalid ? '0000' : end)
+  const output = useMemo(() => dailyOutput(orders, history, invalid ? '9999' : start, invalid ? '0000' : end), [orders, history, invalid, start, end])
   const formatMeter = (meter: number) => new Intl.NumberFormat('id-ID', { maximumFractionDigits: 2 }).format(meter)
-  const completionCard = { label: isArchive ? 'Selesai' : 'Proses selesai', value: stats.completed, caption: isArchive ? 'Berdasarkan tanggal klik Selesai di board Arsip' : 'Berpindah ke tahap lebih lanjut' }
+  const completionCard = { label: isArchive ? 'Selesai' : 'Proses selesai', value: stats.completed, caption: '' }
   const cards = isArchive ? [completionCard] : [
-    { label: 'Masuk ke proses', value: stats.entered, caption: 'Order unik masuk pertama kali' },
+    { label: 'Masuk ke proses', value: stats.entered, caption: '' },
     completionCard,
     { label: 'Output DTF', value: formatMeter(output.dtf.meter) + ' meter', caption: output.dtf.count + ' order selesai print' },
     { label: 'Output Sublim', value: formatMeter(output.sublim.meter) + ' meter', caption: output.sublim.count + ' order selesai print' },
   ]
 
   function exportCsv() {
-    const rows = [['Waktu', 'SPK', 'Pelanggan', 'Proses', 'Aktivitas'], ...stats.events.map(e => [new Date(e.occurredAt).toLocaleString('id-ID', { timeZone: 'Asia/Jakarta' }), e.spkCode, e.customerName, BOARD_STAGE_META[e.stage].name, eventLabel(e.kind)])]
+    const rows = [['Waktu', 'Cabang', 'SPK', 'Pelanggan', 'Proses', 'Aktivitas'], ...stats.events.map(e => [new Date(e.occurredAt).toLocaleString('id-ID', { timeZone: 'Asia/Jakarta' }), eventBranch(e), e.spkCode, e.customerName, BOARD_STAGE_META[e.stage].name, eventLabel(e.kind)])]
     const csv = rows.map(row => row.map(value => `"${(/^[=+@\-\t\r]/.test(value) ? "'" + value : value).replaceAll('"', '""')}"`).join(',')).join('\r\n')
     const url = URL.createObjectURL(new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' }))
     const link = document.createElement('a')
@@ -60,6 +65,7 @@ export default function ProcessReportsPage() {
   }
 
   return (
+    <ReportRooms kind="process" range={range} onRangeChange={setRange}>
     <div className="mx-auto max-w-[1500px] space-y-6 pb-8">
       <section className="flex flex-wrap items-end gap-4 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm" aria-label="Filter laporan">
         <label className="flex min-w-44 flex-col gap-2 text-xs font-semibold text-slate-500">Proses<select className={fieldClass} value={stage} onChange={e => setStage(e.target.value as ProcessStage)}>{PROCESS_STAGES.map(id => <option key={id} value={id}>{BOARD_STAGE_META[id].name}</option>)}</select></label>
@@ -69,7 +75,7 @@ export default function ProcessReportsPage() {
       {invalid && <p role="alert" className="text-sm text-red-600">Pilih tanggal yang valid, tanggal akhir setelah tanggal awal, maksimal 93 hari.</p>}
 
       <div className={isArchive ? "grid gap-4" : "grid gap-4 sm:grid-cols-2 xl:grid-cols-4"}>
-        {cards.map(card => <section key={card.label} className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"><div className="flex items-center justify-between"><p className="text-sm font-medium text-slate-500">{card.label}</p></div><p className="mt-3 text-3xl font-bold text-slate-900">{invalid ? '—' : card.value}</p><p className="mt-2 text-xs text-slate-400">{card.caption}</p></section>)}
+        {cards.map(card => <section key={card.label} className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"><div className="flex items-center justify-between"><p className="text-sm font-medium text-slate-500">{card.label}</p></div><p className="mt-3 text-3xl font-bold text-slate-900">{invalid ? '—' : card.value}</p>{card.caption && <p className="mt-2 text-xs text-slate-400">{card.caption}</p>}</section>)}
       </div>
 
       <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
@@ -83,8 +89,12 @@ export default function ProcessReportsPage() {
       </section>
 
       {!invalid && <ProcessTimingReport stage={stage} start={start} end={end} />}
-
+      <section className="overflow-hidden rounded-xl border border-slate-200 bg-white">
+        <div className="border-b border-slate-100 p-5"><h3 className="font-semibold text-slate-900">Rincian aktivitas</h3><p className="mt-1 text-sm text-slate-500">{stats.events.length} aktivitas</p></div>
+        <div className="max-h-[560px] overflow-auto"><table className="w-full whitespace-nowrap text-left text-sm"><thead className="sticky top-0 bg-slate-50 text-xs text-slate-500"><tr>{['Waktu (WIB)', 'Cabang', 'SPK', 'Pelanggan', 'Aktivitas'].map(label => <th key={label} scope="col" className="px-5 py-3 font-medium">{label}</th>)}</tr></thead><tbody>{[...stats.events].reverse().map(event => <tr key={event.id} className="border-t border-slate-100 text-slate-600"><td className="px-5 py-3">{new Date(event.occurredAt).toLocaleString('id-ID', { timeZone: 'Asia/Jakarta' })}</td><td className="px-5 py-3">{eventBranch(event)}</td><td className="px-5 py-3 font-medium text-slate-900">{orders.some(order => order.id === event.orderId) ? <Link href={`/orders/${event.orderId}?from=reports`} className="text-brand-600 hover:underline">{event.spkCode}</Link> : event.spkCode}</td><td className="px-5 py-3">{event.customerName}</td><td className="px-5 py-3">{eventLabel(event.kind)}</td></tr>)}{!stats.events.length && <tr><td colSpan={5} className="px-5 py-10 text-center text-slate-500">Belum ada aktivitas pada periode ini.</td></tr>}</tbody></table></div>
+      </section>
 
     </div>
+    </ReportRooms>
   )
 }

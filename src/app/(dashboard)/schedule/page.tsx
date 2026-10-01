@@ -44,7 +44,7 @@ export default function ProductionBoardPage() {
           <ChevronLeft aria-hidden="true" className="h-4 w-4 shrink-0" />
           Semua board cabang
         </button>
-        <h2 className="text-center text-xl font-semibold text-slate-900">Board Produksi {branch?.name ?? 'Cabang terpilih'}</h2>
+        <h2 className="page-title text-center">Board Produksi {branch?.name ?? 'Cabang terpilih'}</h2>
       </div>
       <ProductionBoard key={connection.branchId} />
     </>}
@@ -56,7 +56,6 @@ function ProductionBoard() {
   const { profile, busy, state: connectionState } = useOnlineConnection()
   const role = profile?.role
   const manageOrders = canManageOrders(role)
-  const isOperator = normalizeRole(role) === 'operator'
   const boardViewport = useRef<HTMLDivElement>(null)
   const [viewportWidth, setViewportWidth] = useState(0)
   const [manualZoom, setManualZoom] = useState<number | null>(1)
@@ -149,7 +148,7 @@ function ProductionBoard() {
       photoUploading.current = true
       setNotice(`Mengoptimalkan dan menyimpan foto ${order.spkCode}...`)
       await saveOrderPhoto(order.id, file)
-      setNotice(`Foto ${order.spkCode} tersimpan. Buka Detail Order untuk melihatnya.`)
+      setNotice(`Foto ${order.spkCode} tersimpan.`)
     } catch (error) { setNotice(errorMessage(error)) }
     finally { photoUploading.current = false }
   }
@@ -177,8 +176,6 @@ function ProductionBoard() {
           <Link href="/orders/new" className="inline-flex items-center justify-center gap-2 rounded-xl bg-brand-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-brand-700"><PlusCircle className="h-4 w-4" /> Tambah Order</Link>
         </div>}
       </div>
-
-      {isOperator && <p className="text-xs leading-5 text-slate-500">Anda dapat memindahkan order di area Menunggu Pembayaran, Sublim, Press, dan Order Selesai. Kolom lainnya hanya untuk dilihat.</p>}
       {notice && <p role="status" className="rounded-xl border border-brand-200 bg-brand-50 px-4 py-3 text-sm text-brand-700">{notice}</p>}
       <div ref={boardViewport} data-board-viewport tabIndex={0} aria-label="Board produksi, geser untuk melihat seluruh tahap" className="min-w-0 overflow-x-auto pb-3">
         <div data-board-canvas className="grid grid-cols-7 gap-3" style={{ zoom, width: Math.max(1610, viewportWidth / zoom), visibility: viewportWidth ? 'visible' : 'hidden' }}>
@@ -260,7 +257,7 @@ function ProductionBoard() {
           <h3 id="archive-order-title" className="text-lg font-bold text-slate-900">Konfirmasi penerimaan order</h3>
           <p className="mt-2 text-sm text-slate-600">{pendingArchive.spkCode} · {pendingArchive.customer}</p>
           <label className="mt-5 block text-sm font-medium text-slate-700">Penyerahan barang<select autoFocus value={deliveryMethod} onChange={event => setDeliveryMethod(event.target.value as DeliveryMethod)} className="mt-2 w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5"><option value="pickup">Diambil pembeli</option><option value="delivery">Sudah dikirim</option></select></label>
-          <p className="mt-3 text-xs leading-5 text-slate-500">Pastikan barang sudah diserahkan. Order akan tampil di kolom Order Diterima Customer. Setelah itu, ikon Simpan menyimpannya ke Laporan Arsip dan mengeluarkannya dari board.</p>
+          <p className="mt-3 text-xs leading-5 text-slate-500">Konfirmasi barang telah diterima pelanggan.</p>
           {archiveError && <p role="alert" className="mt-3 text-sm text-red-600">{archiveError}</p>}
           <div className="mt-6 flex justify-end gap-3"><button type="button" onClick={() => setPendingArchive(null)} className="rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-600">Batal</button><button type="button" onClick={async () => { try { if (await archiveOrder(pendingArchive.id, deliveryMethod)) setPendingArchive(null); else setArchiveError('Order harus berada di Order Selesai dan belum diarsipkan. Periksa kembali board.'); } catch { setArchiveError('Arsip belum tersimpan. Periksa koneksi database lalu coba lagi.') } }} className="rounded-xl bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white">Konfirmasi Diterima</button></div>
         </div>
@@ -270,7 +267,7 @@ function ProductionBoard() {
         <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl">
           <h3 id="finish-order-title" className="text-lg font-bold text-slate-900">Simpan ke laporan arsip?</h3>
           <p className="mt-2 text-sm text-slate-600">{pendingFinish.spkCode} - {pendingFinish.customer}</p>
-          <p className="mt-3 text-sm text-slate-500">Order akan dikeluarkan dari board dan disimpan di Laporan Arsip dengan tanggal hari ini. Foto order akan dihapus permanen; data order dan riwayat produksi tetap tersimpan.</p>
+          <p className="mt-3 text-sm text-slate-500">Simpan ke arsip hari ini dan keluarkan dari board. Foto dihapus permanen; data order dan riwayat tetap tersimpan.</p>
           {finishError && <p role="alert" className="mt-3 text-sm text-red-600">{finishError}</p>}
           <div className="mt-6 flex justify-end gap-3">
             <button autoFocus type="button" disabled={finishing} onClick={() => setPendingFinish(null)} className="rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-600">Batal</button>

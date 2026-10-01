@@ -3,37 +3,56 @@
 import Image from 'next/image'
 import { useEffect, useId, useRef, useState, type ChangeEvent } from 'react'
 import { ImagePlus, RefreshCw, Trash2 } from 'lucide-react'
-import { createClient } from '@/lib/supabase/client'
 import { errorMessage, saveOrderPhoto } from '@/lib/production-board'
-import { ORDER_PHOTO_BUCKET, orderPhotoExtension } from '@/lib/order-photo'
+import { orderPhotoExtension } from '@/lib/order-photo'
+import { getOrderPhotoUrl, invalidateOrderPhotoUrl } from '@/lib/order-photo-url'
 
 export default function OrderPhoto({ orderId, spkCode, path, editable }: {
   orderId: string; spkCode: string; path: string | null; editable: boolean
 }) {
   const inputId = useId()
   const input = useRef<HTMLInputElement>(null)
+  const container = useRef<HTMLDivElement>(null)
+  const [visible, setVisible] = useState(false)
   const [photo, setPhoto] = useState({ path: '', url: '', error: '' })
   const [retry, setRetry] = useState(0)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
   const [confirmRemove, setConfirmRemove] = useState(false)
   useEffect(() => {
-    if (!path) return
+    if (!container.current) return
+    if (typeof IntersectionObserver === 'undefined') {
+      const timer = window.setTimeout(() => setVisible(true), 0)
+      return () => window.clearTimeout(timer)
+    }
+    const observer = new IntersectionObserver(entries => setVisible(entries.some(entry => entry.isIntersecting)))
+    observer.observe(container.current)
+    return () => observer.disconnect()
+  }, [path, editable])
+  useEffect(() => {
+    if (!path || !visible) return
     let cancelled = false
-    const storage = createClient().storage.from(ORDER_PHOTO_BUCKET)
+    let refreshing = false
+    let timer: number | undefined
     async function refresh() {
+      if (timer !== undefined) window.clearTimeout(timer)
+      if (cancelled || refreshing || document.visibilityState !== 'visible') return
+      refreshing = true
       try {
-        const { data, error } = await storage.createSignedUrl(path!, 600)
-        if (!cancelled) setPhoto({ path: path!, url: data?.signedUrl ?? '', error: error ? 'Foto belum dapat dimuat.' : '' })
+        const result = await getOrderPhotoUrl(path!)
+        if (!cancelled) {
+          setPhoto({ path: path!, url: result.url, error: '' })
+          if (document.visibilityState === 'visible') timer = window.setTimeout(() => { void refresh() }, Math.max(1000, result.expiresAt - Date.now()))
+        }
       } catch {
         if (!cancelled) setPhoto({ path: path!, url: '', error: 'Foto belum dapat dimuat.' })
-      }
+      } finally { refreshing = false }
     }
     void refresh()
-    const timer = window.setInterval(() => { void refresh() }, 8 * 60 * 1000)
     window.addEventListener('focus', refresh)
-    return () => { cancelled = true; window.clearInterval(timer); window.removeEventListener('focus', refresh) }
-  }, [path, retry])
+    document.addEventListener('visibilitychange', refresh)
+    return () => { cancelled = true; window.clearTimeout(timer); window.removeEventListener('focus', refresh); document.removeEventListener('visibilitychange', refresh) }
+  }, [path, retry, visible])
 
   async function save(file: File | null) {
     if (saving) return
@@ -54,13 +73,13 @@ export default function OrderPhoto({ orderId, spkCode, path, editable }: {
   const loadError = photo.path === path ? photo.error : ''
 
   if (!path && !editable) return null
-  return <div className="mt-3 border-t border-slate-100 pt-3" draggable={false} onDragStart={event => { event.preventDefault(); event.stopPropagation() }} onPointerDown={event => event.stopPropagation()}>
+  return <div ref={container} className="mt-3 border-t border-slate-100 pt-3" draggable={false} onDragStart={event => { event.preventDefault(); event.stopPropagation() }} onPointerDown={event => event.stopPropagation()}>
     {editable && <p className="mb-2 text-xs font-medium text-slate-500">Foto order (opsional)</p>}
     {path && (loadError ? <div className="rounded-lg bg-slate-50 p-3 text-xs text-slate-500">
       <p role="status">{loadError}</p>
-      <button type="button" onClick={() => setRetry(value => value + 1)} className="mt-2 inline-flex items-center gap-1 text-brand-600"><RefreshCw size={12} />Coba lagi</button>
+      <button type="button" onClick={() => { invalidateOrderPhotoUrl(path); setRetry(value => value + 1) }} className="mt-2 inline-flex items-center gap-1 text-brand-600"><RefreshCw size={12} />Coba lagi</button>
     </div> : url ? <a href={url} target="_blank" rel="noreferrer" draggable={false} aria-label={`Lihat foto ${spkCode} ukuran penuh`} className="block overflow-hidden rounded-lg border border-slate-200 bg-slate-50">
-      <Image unoptimized src={url} alt={`Foto order ${spkCode}`} width={640} height={480} draggable={false} className="max-h-96 w-full object-contain" onError={() => setPhoto({ path, url: '', error: 'Foto belum dapat dimuat.' })} />
+      <Image unoptimized loading="lazy" src={url} alt={`Foto order ${spkCode}`} width={640} height={480} draggable={false} className="max-h-96 w-full object-contain" onError={() => { invalidateOrderPhotoUrl(path); setPhoto({ path, url: '', error: 'Foto belum dapat dimuat.' }) }} />
     </a> : <p role="status" className="py-4 text-center text-xs text-slate-500">Memuat foto...</p>)}
     {editable && <>
       <input ref={input} id={inputId} type="file" accept="image/jpeg,image/png,image/webp" onChange={select} disabled={saving} className="sr-only" tabIndex={-1} aria-label={`Pilih foto ${spkCode}`} />

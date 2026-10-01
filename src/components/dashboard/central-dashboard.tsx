@@ -1,14 +1,15 @@
 'use client'
 
 import Link from 'next/link'
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { ArrowUpRight, Building2, TriangleAlert } from 'lucide-react'
 import CentralCharts from '@/components/dashboard/central-charts'
 import PaperOutput from '@/components/dashboard/paper-output'
+import ProductivityReport from '@/components/productivity-report'
 import DateRangeFilter, { todayRange } from '@/components/date-range-filter'
 import { BOARD_STAGE_META, selectBranch, useAllOrders, useOnlineConnection, useProcessHistory, type BoardOrder } from '@/lib/production-board'
 import { paperOutput } from '@/lib/paper-output'
-import { centralDashboard, shiftDate } from '@/lib/central-dashboard'
+import { centralDashboardSummary, longestPendingOrders, shiftDate } from '@/lib/central-dashboard'
 import { jakartaDate } from '@/lib/process-metrics'
 
 const number = new Intl.NumberFormat('id-ID', {maximumFractionDigits:2})
@@ -35,26 +36,30 @@ export default function CentralDashboard() {
   const end=range.period==='today'?today:range.end
   const selectedBranch=status.branches?.find(branch=>branch.id===status.branchId)
   const scopeLabel=status.branchId ? `Cabang ${selectedBranch?.name ?? 'terpilih'}` : 'Semua cabang'
-  const data=useMemo(()=>centralDashboard(orders,history,
-    (status.branches??[]).filter(branch=>!status.branchId || branch.id===status.branchId),start,end,now),
-    [orders,history,status.branches,status.branchId,start,end,now])
+  const scopedOrders=useMemo(()=>status.branchId ? orders.filter(order=>order.branch_id===status.branchId) : orders,[orders,status.branchId])
+  const summary=useMemo(()=>centralDashboardSummary(orders,history,
+    (status.branches??[]).filter(branch=>!status.branchId || branch.id===status.branchId),start,end,today),
+    [orders,history,status.branches,status.branchId,start,end,today])
+  const longest=useMemo(()=>longestPendingOrders(summary.pendingOrders,history,now),[summary.pendingOrders,history,now])
+  const data={...summary,longest}
+  const branchPaper=useMemo(()=>Object.fromEntries(summary.rows.map(branch=>[branch.id,paperOutput(orders.filter(order=>order.branch_id===branch.id),history,start,end).totals])),[summary.rows,orders,history,start,end])
+  const paperCharts=useMemo(()=><PaperOutput sharedGrid orders={scopedOrders} history={history} start={start} end={end} scope={scopeLabel} />,[scopedOrders,history,start,end,scopeLabel])
   const branchNames=new Map(status.branches?.map(branch=>[branch.id,branch.name]))
   const alerts: {order:BoardOrder;note:string}[] = attention==='late'
     ? data.overdue.map(order=>({order,note:'Tenggat '+shortDate(order.due_at)}))
     : attention==='today' ? data.dueToday.map(order=>({order,note:'Tenggat '+shortDate(order.due_at)}))
     : data.longest.map(({order,milliseconds})=>({order,note:duration(milliseconds)+' di tahap ini'}))
-  async function openBranch(id:string | null) {
+  const openBranch=useCallback(async (id:string | null) => {
     try { await selectBranch(id) } catch { setNotice('Cabang belum dapat dibuka. Coba kembali.') }
-  }
+  },[])
   function preset(kind:'week'|'month') {
     const weekday=new Date(today+'T12:00:00Z').getUTCDay()
     setRange({period:'custom',start:kind==='month'?today.slice(0,8)+'01':shiftDate(today,-((weekday+6)%7)),end:today})
   }
   return <div className="min-w-0 space-y-5 pb-4">
     <header className="flex flex-wrap items-start justify-between gap-4">
-      <div><p className="text-xs font-semibold uppercase tracking-wider text-brand-600">Owner Pusat</p>
-        <h2 className="mt-1 text-2xl font-bold tracking-tight text-slate-900">{status.branchId ? `Pantau ${scopeLabel}` : 'Pantau seluruh cabang'}</h2>
-        <p className="mt-1 text-sm text-slate-500">{status.branchId ? `Ringkasan operasional ${scopeLabel}.` : `${data.rows.length} cabang dalam satu tampilan.`}</p>
+      <div>
+        <h2 className="page-title">{status.branchId ? `Pantau ${scopeLabel}` : 'Pantau seluruh cabang'}</h2>
       </div>
       {status.branchId && <button type="button" onClick={()=>void openBranch(null)} className="rounded-xl border border-brand-600 bg-white px-4 py-2.5 text-sm font-medium text-brand-600 transition-colors hover:bg-brand-50">Kembali ke seluruh cabang</button>}
     </header>
@@ -70,17 +75,18 @@ export default function CentralDashboard() {
       {([
         {label:'Output DTF',value:number.format(data.output.dtf.meter)+' meter',caption:data.output.dtf.count+' order selesai print',kind:'dtf'},
         {label:'Output Sublim',value:number.format(data.output.sublim.meter)+' meter',caption:data.output.sublim.count+' order selesai print',kind:'sublim'},
-        {label:'Order dalam proses',value:number.format(data.pending),caption:'Order masuk periode terpilih / Belum selesai saat ini',kind:'pending'},
-        {label:'Order terlambat',value:number.format(data.overdue.length),caption:'Order masuk periode terpilih / Terlambat saat ini',kind:'late'},
+        {label:'Order dalam proses',value:number.format(data.pending),caption:'',kind:'pending'},
+        {label:'Order terlambat',value:number.format(data.overdue.length),caption:'',kind:'late'},
       ]).map(card=><section key={card.kind} data-output={card.kind} className={panel+' daily-output-card p-5 '+(card.kind==='late'&&data.overdue.length?'border-red-200 bg-red-50':'')}>
         <h3 className="text-sm font-medium text-slate-500">{card.label}</h3>
         <p className={'mt-3 break-words text-3xl font-bold tracking-tight '+(card.kind==='late'&&data.overdue.length?'text-red-600':'text-slate-900')}>{card.value}</p>
-        <p className="mt-2 text-xs leading-5 text-slate-500">{card.caption}</p>
+        {card.caption && <p className="mt-2 text-xs leading-5 text-slate-500">{card.caption}</p>}
       </section>)}
     </div>
-    <CentralCharts data={data} scope={scopeLabel} onBranch={id=>void openBranch(id)}
-      paperCharts={<PaperOutput orders={status.branchId ? orders.filter(order=>order.branch_id===status.branchId) : orders} history={history} start={start} end={end} scope={scopeLabel} />}
-      branchPaper={Object.fromEntries(data.rows.map(branch=>[branch.id,paperOutput(orders.filter(order=>order.branch_id===branch.id),history,start,end).totals]))}
+    <ProductivityReport orders={scopedOrders} history={history} start={start} end={end} scope={scopeLabel} />
+    <CentralCharts data={summary} scope={scopeLabel} onBranch={openBranch}
+      paperCharts={paperCharts}
+      branchPaper={branchPaper}
     />
     <section className={panel}>
       <div className="flex items-center gap-2 border-b border-slate-100 px-5 py-4"><Building2 className="h-4 w-4 text-slate-500"/><h3 className="font-semibold text-slate-900">{status.branchId ? 'Ringkasan cabang' : 'Perbandingan cabang'}</h3></div>
@@ -98,13 +104,11 @@ export default function CentralDashboard() {
           </tr>)}</tbody>
         </table>
       </div>
-      <p className="border-t border-slate-100 px-5 py-3 text-xs text-slate-500">Output berdasarkan tanggal selesai print. Jumlah dalam proses, selesai, dan terlambat menampilkan status terbaru order yang masuk pada periode terpilih.</p>
     </section>
     <div className="grid items-start gap-5">
       <section className={panel+' overflow-hidden'}>
         <div className="border-b border-slate-100 p-5">
           <h3 className="flex items-center gap-2 font-semibold text-slate-900"><TriangleAlert className="h-4 w-4 text-amber-600"/>Perlu perhatian</h3>
-          <p className="mt-1 text-xs text-slate-500">Order masuk periode terpilih, {status.branchId ? `di ${scopeLabel}` : 'di seluruh cabang'}. Status terbaru.</p>
           <div role="group" aria-label="Jenis perhatian" className="mt-4 flex flex-wrap gap-2">
             {([{id:'late',label:'Terlambat',count:data.overdue.length},{id:'today',label:'Tenggat dalam periode',count:data.dueToday.length},{id:'longest',label:'Terlama di tahap',count:data.longest.length}] as const).map(tab=><button key={tab.id} type="button" aria-pressed={attention===tab.id} onClick={()=>setAttention(tab.id)} className={'rounded-lg px-3 py-2 text-xs font-medium '+(attention===tab.id?'bg-brand-50 text-brand-700':'bg-slate-50 text-slate-600')}>{tab.label} ({tab.count})</button>)}
           </div>
@@ -114,9 +118,9 @@ export default function CentralDashboard() {
             <div className="min-w-0"><p className="text-sm font-semibold text-slate-900">{order.spk_code} <span className="font-normal text-slate-500">/ {branchNames.get(order.branch_id!)}</span></p><p className="mt-1 truncate text-sm text-slate-600">{order.customer.name}</p><p className="mt-1 text-xs text-slate-500">{BOARD_STAGE_META[order.board_stage].name}</p></div>
             <span className={'shrink-0 text-right text-xs font-medium '+(attention==='late'?'text-red-600':'text-slate-600')}>{note}<ArrowUpRight className="ml-auto mt-2 h-4 w-4"/></span>
           </Link>)}
-          {!alerts.length&&<p className="p-8 text-center text-sm text-slate-500">{attention==='late'?'Tidak ada order terlambat.':attention==='today'?'Tidak ada order belum selesai yang jatuh tempo dalam periode ini.':'Belum ada durasi tahap yang dapat ditampilkan.'}</p>}
+          {!alerts.length&&<p className="p-8 text-center text-sm text-slate-500">{attention==='late'?'Tidak ada order terlambat.':attention==='today'?'Tidak ada order jatuh tempo.':'Belum ada data durasi.'}</p>}
         </div>
-        {alerts.length>5&&<p className="px-5 pb-4 text-xs text-slate-500">Menampilkan 5 dari {alerts.length} order. Buka Board Produksi untuk melihat seluruh order.</p>}
+        {alerts.length>5&&<p className="px-5 pb-4 text-xs text-slate-500">5 dari {alerts.length} order</p>}
       </section>
 
     </div>

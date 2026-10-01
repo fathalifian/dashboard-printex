@@ -21,7 +21,7 @@ function OrderDetail() {
   const { id } = useParams()
   const router = useRouter()
   const from = useSearchParams().get('from')
-  const backHref = from && ['dashboard', 'schedule', 'archives', 'orders'].includes(from)
+  const backHref = from && ['dashboard', 'schedule', 'archives', 'orders', 'reports'].includes(from)
     ? `/${from}`
     : '/dashboard'
   const order = useAllOrders().find(o => o.id === id)
@@ -56,7 +56,7 @@ function OrderDetail() {
 
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
         <div className="flex min-w-0 flex-wrap items-center gap-3">
-          <h2 className="break-words text-xl font-semibold text-slate-900">{order.customer.name}</h2>
+          <h2 className="page-title break-words">{order.customer.name}</h2>
           <CustomerTypeBadge customerType={order.customer_type} />
           {overdue && (
             <span className="inline-flex items-center gap-1 rounded-md border border-red-200 bg-red-50 px-2.5 py-1 text-xs font-medium text-red-700">

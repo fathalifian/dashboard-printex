@@ -7,6 +7,7 @@ import { outputForCompletions, printCompletions } from '@/lib/daily-output'
 import { shiftDate } from '@/lib/central-dashboard'
 import CentralCharts from '@/components/dashboard/central-charts'
 import PaperOutput from '@/components/dashboard/paper-output'
+import ProductivityReport from '@/components/productivity-report'
 import DateRangeFilter, { todayRange } from '@/components/date-range-filter'
 
 const number = new Intl.NumberFormat('id-ID', { maximumFractionDigits: 3 })
@@ -49,14 +50,15 @@ export default function DailyOutput() {
         {([
           { key: 'dtf', title: 'Output DTF', value: number.format(data.output.dtf.meter) + ' meter', caption: data.output.dtf.count + ' order selesai print' },
           { key: 'sublim', title: 'Output Sublim', value: number.format(data.output.sublim.meter) + ' meter', caption: data.output.sublim.count + ' order selesai print' },
-          { key: 'pending', title: 'Order dalam proses', value: number.format(data.pending), caption: 'Order masuk periode terpilih / Belum selesai saat ini' },
-          { key: 'late', title: 'Order terlambat', value: number.format(data.overdue), caption: 'Order masuk periode terpilih / Terlambat saat ini' },
+          { key: 'pending', title: 'Order dalam proses', value: number.format(data.pending), caption: '' },
+          { key: 'late', title: 'Order terlambat', value: number.format(data.overdue), caption: '' },
         ]).map(card => <div key={card.key} data-output={card.key} className={'daily-output-card rounded-2xl border border-slate-200 bg-white p-5 shadow-sm' + (card.key === 'late' && data.overdue ? ' border-red-200 bg-red-50' : '')}>
           <h3 className="text-sm font-medium text-slate-500">{card.title}</h3>
           <p className={'mt-3 break-words text-3xl font-bold tracking-tight ' + (card.key === 'late' && data.overdue ? 'text-red-600' : 'text-slate-900')}>{card.value}</p>
-          <p className="mt-2 text-xs leading-5 text-slate-500">{card.caption}</p>
+          {card.caption && <p className="mt-2 text-xs leading-5 text-slate-500">{card.caption}</p>}
         </div>)}
       </div>
-      <CentralCharts data={data} scope={scope} paperCharts={<PaperOutput orders={scopedOrders} history={history} start={start} end={end} scope={scope} />} /></>}
+      <ProductivityReport orders={scopedOrders} history={history} start={start} end={end} scope={scope} />
+      <CentralCharts data={data} scope={scope} paperCharts={<PaperOutput sharedGrid orders={scopedOrders} history={history} start={start} end={end} scope={scope} />} /></>}
   </section>
 }

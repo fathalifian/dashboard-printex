@@ -73,3 +73,12 @@ test('archive period follows finalization date without counting completion twice
   assert.equal(productionFlow(orders, events, 30 * 3600000, { start: '1970-01-02', end: '1970-01-02' })[6].samples, 1)
   assert.equal(productionFlow(orders, events, 30 * 3600000, { start: '1970-01-01', end: '1970-01-01' })[6].samples, 0)
 })
+const {createProductionFlowReader}=compile('./production-flow.ts',{'./process-metrics':metrics})
+test('cached flow preserves totals, live waiting, bottlenecks and future finalization',()=>{
+ const history=[...['1','2','3'].flatMap(id=>[event(id,'design','entered',1),event(id,'design','completed',2)]),event('live','design','entered',3),event('archived','archive','entered',4)]
+ const orders=[order('live','design'),order('archived','archive',{finalizedAt:new Date(8*3600000).toISOString()})]
+ for(const range of [undefined,{start:'1970-01-01',end:'1970-01-01'},{start:'1970-01-02',end:'1970-01-02'}]){
+  const read=createProductionFlowReader(orders,history,range)
+  for(const hour of [0,1,2,3,3.5,4,5,7,8,9,2,10])assert.deepEqual(read(hour*3600000),productionFlow(orders,history,hour*3600000,range))
+ }
+})

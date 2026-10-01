@@ -21,8 +21,7 @@ export default function SettingsPage() {
           <div className="flex items-center gap-3 mb-3">
             <h3 className="text-sm font-semibold text-slate-900">Manajemen User</h3>
           </div>
-          <p className="text-xs text-slate-500">Kelola akun dan hak akses.</p>
-          {canManageUsers ? <Link href="/settings/users" className="mt-3 inline-block text-sm font-semibold text-brand-600">Kelola Pengguna</Link> : <p className="mt-3 text-xs text-slate-500">Pengelolaan akun dilakukan oleh Owner Pusat atau Owner Cabang.</p>}
+          {canManageUsers ? <Link href="/settings/users" className="mt-3 inline-block text-sm font-semibold text-brand-600">Kelola Pengguna</Link> : <p className="mt-3 text-xs text-slate-500">Hubungi Owner untuk mengelola akun.</p>}
         </div>
 
       </div>
