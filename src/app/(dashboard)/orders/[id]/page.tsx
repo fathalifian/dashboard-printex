@@ -1,13 +1,14 @@
 'use client'
 
-import { Suspense } from 'react'
+import { Suspense, useRef, useState } from 'react'
 import { useParams, useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import { OrderTimer } from '@/components/production-timers'
 import OrderPhoto from '@/components/order-photo'
+import DeleteConfirmation from '@/components/delete-confirmation'
 import { AlertTriangle, CheckCircle2, Circle, Loader2, Pencil, Trash2 } from 'lucide-react'
 import { PROCESS_STAGES } from '@/lib/process-metrics'
-import { deleteOrder, useAllOrders, useProcessHistory, BOARD_STAGE_META } from '@/lib/production-board'
+import { deleteOrder, errorMessage, useAllOrders, useProcessHistory, BOARD_STAGE_META } from '@/lib/production-board'
 import { StatusBadge, CustomerTypeBadge } from '@/components/ui/badges'
 import { formatDate, formatDueDate, isOverdue } from '@/lib/utils'
 import { cn } from '@/lib/utils'
@@ -26,6 +27,10 @@ function OrderDetail() {
     : '/dashboard'
   const order = useAllOrders().find(o => o.id === id)
   const history = useProcessHistory().filter(event => event.orderId === id)
+  const [confirmDelete, setConfirmDelete] = useState(false)
+  const [deleting, setDeleting] = useState(false)
+  const [deleteError, setDeleteError] = useState('')
+  const deletePending = useRef(false)
 
   if (!order) {
     return (
@@ -39,8 +44,12 @@ function OrderDetail() {
   const overdue = isOverdue(order.due_at, order.order_state)
 
   async function handleDelete() {
-    if (!window.confirm(`Hapus order ${order?.spk_code}? Tindakan ini akan menghilangkan order dari seluruh halaman.`)) return
-    try { await deleteOrder(String(id)); router.replace(backHref) } catch { /* Connection banner displays the error. */ }
+    if (deletePending.current) return
+    deletePending.current = true
+    setDeleting(true); setDeleteError('')
+    try { await deleteOrder(String(id)); router.replace(backHref) }
+    catch (error) { setDeleteError(errorMessage(error)) }
+    finally { deletePending.current = false; setDeleting(false) }
   }
 
   return (
@@ -66,7 +75,7 @@ function OrderDetail() {
         </div>
         <div className="flex flex-wrap items-center gap-2">
           {order.board_stage !== 'archive' && <><Link href={`/orders/${order.id}/edit`} className="inline-flex items-center gap-1.5 rounded-xl border border-brand-200 bg-brand-50 px-3 py-2 text-xs font-semibold text-brand-700 hover:bg-brand-100"><Pencil className="h-3.5 w-3.5" /> Edit Order</Link>
-          <button type="button" onClick={handleDelete} className="inline-flex items-center gap-1.5 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs font-semibold text-red-700 hover:bg-red-100"><Trash2 className="h-3.5 w-3.5" /> Hapus Order</button></>}
+          <button type="button" onClick={() => { setDeleteError(''); setConfirmDelete(true) }} className="inline-flex items-center gap-1.5 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs font-semibold text-red-700 hover:bg-red-100"><Trash2 className="h-3.5 w-3.5" /> Hapus Order</button></>}
           <StatusBadge stepName={order.current_step.name} />
         </div>
       </div>
@@ -163,6 +172,7 @@ function OrderDetail() {
         </section>
       </div>
       <OrderTimer id={order.id} detail />
+      {confirmDelete && <DeleteConfirmation title="Hapus order?" message={`Order ${order.spk_code} akan dihapus dari seluruh halaman. Tindakan ini tidak dapat dibatalkan.`} busy={deleting} error={deleteError} onCancel={() => setConfirmDelete(false)} onConfirm={() => void handleDelete()} />}
     </div>
   )
 }

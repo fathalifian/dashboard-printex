@@ -6,6 +6,7 @@ import { ImagePlus, RefreshCw, Trash2 } from 'lucide-react'
 import { errorMessage, saveOrderPhoto } from '@/lib/production-board'
 import { orderPhotoExtension } from '@/lib/order-photo'
 import { getOrderPhotoUrl, invalidateOrderPhotoUrl } from '@/lib/order-photo-url'
+import DeleteConfirmation from '@/components/delete-confirmation'
 
 export default function OrderPhoto({ orderId, spkCode, path, editable }: {
   orderId: string; spkCode: string; path: string | null; editable: boolean
@@ -19,6 +20,8 @@ export default function OrderPhoto({ orderId, spkCode, path, editable }: {
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
   const [confirmRemove, setConfirmRemove] = useState(false)
+  const [dragging, setDragging] = useState(false)
+  const uploadPending = useRef(false)
   useEffect(() => {
     if (!container.current) return
     if (typeof IntersectionObserver === 'undefined') {
@@ -55,14 +58,15 @@ export default function OrderPhoto({ orderId, spkCode, path, editable }: {
   }, [path, retry, visible])
 
   async function save(file: File | null) {
-    if (saving) return
+    if (uploadPending.current) return
+    uploadPending.current = true
     setSaving(true); setError('')
     try {
       if (file) orderPhotoExtension(file)
       await saveOrderPhoto(orderId, file)
       setConfirmRemove(false)
     } catch (error) { setError(errorMessage(error)) }
-    finally { setSaving(false) }
+    finally { uploadPending.current = false; setSaving(false) }
   }
   function select(event: ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0]
@@ -73,7 +77,21 @@ export default function OrderPhoto({ orderId, spkCode, path, editable }: {
   const loadError = photo.path === path ? photo.error : ''
 
   if (!path && !editable) return null
-  return <div ref={container} className="mt-3 border-t border-slate-100 pt-3" draggable={false} onDragStart={event => { event.preventDefault(); event.stopPropagation() }} onPointerDown={event => event.stopPropagation()}>
+  return <div ref={container} className={`mt-3 border-t border-slate-100 pt-3 ${editable ? 'rounded-xl border-2 border-dashed p-4' : ''} ${dragging ? 'border-brand-500 bg-brand-50' : ''}`} draggable={false} onDragStart={event => { event.preventDefault(); event.stopPropagation() }} onPointerDown={event => event.stopPropagation()}
+    onDragOver={event => {
+      if (!editable || !Array.from(event.dataTransfer.types).includes('Files')) return
+      event.preventDefault(); event.stopPropagation()
+      event.dataTransfer.dropEffect = saving || container.current?.closest('fieldset')?.disabled ? 'none' : 'copy'
+      setDragging(!saving)
+    }}
+    onDragLeave={event => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setDragging(false) }}
+    onDrop={event => {
+      if (!editable || !Array.from(event.dataTransfer.types).includes('Files')) return
+      event.preventDefault(); event.stopPropagation(); setDragging(false)
+      if (saving || container.current?.closest('fieldset')?.disabled) return
+      if (event.dataTransfer.files.length !== 1) { setError('Pilih satu foto order.'); return }
+      void save(event.dataTransfer.files[0])
+    }}>
     {editable && <p className="mb-2 text-xs font-medium text-slate-500">Foto order (opsional)</p>}
     {path && (loadError ? <div className="rounded-lg bg-slate-50 p-3 text-xs text-slate-500">
       <p role="status">{loadError}</p>
@@ -88,7 +106,8 @@ export default function OrderPhoto({ orderId, spkCode, path, editable }: {
         {path && <button type="button" disabled={saving} onClick={() => setConfirmRemove(true)} aria-label={`Hapus foto ${spkCode}`} title="Hapus foto" className="rounded-lg border border-slate-200 p-2 text-red-600 disabled:opacity-50"><Trash2 size={14} /></button>}
       </div>
       {!path && <p className="mt-1 text-[10px] text-slate-400">JPG, PNG, WebP · Maks. 5 MB</p>}
-      {confirmRemove && <div className="mt-2 text-xs text-slate-600"><p>Hapus foto order ini?</p><div className="mt-2 flex gap-3"><button type="button" disabled={saving} onClick={() => void save(null)} className="font-semibold text-red-600">Hapus foto</button><button type="button" disabled={saving} onClick={() => setConfirmRemove(false)}>Batal</button></div></div>}
+      <p className="mt-2 text-center text-xs text-slate-500">Seret foto ke kotak ini atau klik {path ? 'Ganti foto' : 'Tambah foto'}.</p>
+      {confirmRemove && <DeleteConfirmation title="Hapus foto order?" message={`Foto ${spkCode} akan dihapus. Data order tetap tersimpan.`} busy={saving} error={error} onCancel={() => setConfirmRemove(false)} onConfirm={() => void save(null)} />}
     </>}
     {error && <p role="alert" className="mt-2 text-xs text-red-600">{error}</p>}
   </div>
