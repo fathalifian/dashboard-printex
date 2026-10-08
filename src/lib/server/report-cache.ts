@@ -12,7 +12,7 @@ export function createQueryGate(limit = 8) {
 }
 
 // A small per-process LRU; optional Redis shares completed summaries across instances.
-export function createReportCache({ now = Date.now, maxBytes = 8 * 1024 * 1024, maxEntries = 128, ttl = 10_000 }: Options = {}) {
+export function createReportCache({ now = Date.now, maxBytes = 8 * 1024 * 1024, maxEntries = 128, ttl = 30_000 }: Options = {}) {
   const entries = new Map<string, Entry>()
   const pending = new Map<string, Promise<string>>()
   let bytes = 0

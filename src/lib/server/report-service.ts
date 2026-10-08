@@ -39,7 +39,7 @@ export async function readReport(request: ReportRequest) {
     try {
       const data = JSON.parse(value)
       const age = Date.now() - Date.parse(data.asOf)
-      return Array.isArray(data.rows) && data.pending === false && age >= -5000 && age < 10_000
+      return Array.isArray(data.rows) && data.pending === false && age >= -5000 && age < 30_000
     }
     catch { return false }
   }
@@ -50,7 +50,7 @@ export async function readReport(request: ReportRequest) {
       if (typeof saved === 'string' && complete(saved)) { redisHit = true; return saved }
     }
     const value = await load()
-    if (complete(value) && Buffer.byteLength(value) <= 512 * 1024) await redisCommand(['SET', key, value, 'PX', '10000'])
+    if (complete(value) && Buffer.byteLength(value) <= 512 * 1024) await redisCommand(['SET', key, value, 'PX', '30000'])
     return value
   }, complete, request.bypassCache)
   return { ...result, source: result.source === 'database' && redisHit ? 'redis' : result.source }
