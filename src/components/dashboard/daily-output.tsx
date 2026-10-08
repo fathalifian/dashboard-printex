@@ -4,6 +4,8 @@ import { useEffect, useMemo, useState } from 'react'
 import { useAllOrders, useOnlineConnection, useProcessHistory } from '@/lib/production-board'
 import { jakartaDate } from '@/lib/process-metrics'
 import { outputForCompletions, printCompletions } from '@/lib/daily-output'
+import { useDailySummary, storedOutput, storedTrend } from '@/lib/report-summaries'
+import ReportStatus from '@/components/report-status'
 import { shiftDate } from '@/lib/central-dashboard'
 import CentralCharts from '@/components/dashboard/central-charts'
 import PaperOutput from '@/components/dashboard/paper-output'
@@ -24,19 +26,20 @@ export default function DailyOutput() {
   }, [])
   const start = range.period === 'today' ? today || range.start : range.start
   const end = range.period === 'today' ? today || range.end : range.end
+  const saved=useDailySummary(start,end)
   const scopedOrders = useMemo(() => connection.branchId ? orders.filter(order => order.branch_id === connection.branchId) : orders, [orders, connection.branchId])
   const scope = connection.branches?.find(branch => branch.id === connection.branchId)?.name ?? 'Cabang aktif'
   const data = useMemo(() => {
-    const completions = printCompletions(history)
-    const output = outputForCompletions(scopedOrders, completions, start, end)
+    const completions = saved.enabled?[]:printCompletions(history)
+    const output = saved.enabled?storedOutput(saved.rows):outputForCompletions(scopedOrders, completions, start, end)
     const days = Math.max(0, Math.round((Date.parse(end) - Date.parse(start)) / 86400000) + 1)
-    const trend = Array.from({ length: days }, (_, index) => {
+    const trend = saved.enabled?storedTrend(saved.rows,start,end):Array.from({ length: days }, (_, index) => {
       const day = shiftDate(start, index)
       return { day, ...outputForCompletions(scopedOrders, completions, day, day) }
     })
     const pending = scopedOrders.filter(order => order.order_date >= start && order.order_date <= end && order.order_state !== 'completed' && order.order_state !== 'cancelled' && !order.archive?.finalizedAt)
     return { output, trend, rows: [], pending: pending.length, overdue: pending.filter(order => order.due_at && order.due_at < today).length }
-  }, [scopedOrders, history, start, end, today])
+  }, [scopedOrders, history, start, end, today, saved.enabled, saved.rows])
 
   return <section aria-labelledby="daily-output-title" className="min-w-0 space-y-5">
     <div className="flex flex-wrap items-center justify-between gap-4 rounded-2xl border border-slate-200 bg-white px-5 py-4">
@@ -45,7 +48,8 @@ export default function DailyOutput() {
       </div>
       <DateRangeFilter value={{ ...range, start, end }} onChange={setRange} />
     </div>
-    {connection.state !== 'ready' || !today ? <p role="status" className="p-8 text-center text-sm text-slate-500">{connection.state === 'error' ? 'Output belum tersedia. Periksa koneksi data.' : 'Memuat output harian...'}</p> :
+    <ReportStatus report={saved} />
+    {connection.state !== 'ready' || !today || (saved.enabled&&(saved.loading||!!saved.error)) ? <p role="status" className="p-8 text-center text-sm text-slate-500">{saved.enabled&&saved.error?'Ringkasan belum tersedia.':connection.state === 'error' ? 'Output belum tersedia. Periksa koneksi data.' : 'Memuat output harian...'}</p> :
       <><div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4" aria-live="polite">
         {([
           { key: 'dtf', title: 'Output DTF', value: number.format(data.output.dtf.meter) + ' meter', caption: data.output.dtf.count + ' order selesai print' },

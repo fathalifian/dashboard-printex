@@ -2,7 +2,8 @@
 
 import Link from 'next/link'
 
-import { useOnlineConnection } from '@/lib/production-board'
+import { BOARD_STAGE_META, useOnlineConnection } from '@/lib/production-board'
+import { BOARD_STAGES } from '@/lib/process-metrics'
 import { canManageUsers as mayManageUsers } from '@/lib/access-control'
 import CustomerServiceSettings from '@/components/customer-service-settings'
 import dynamic from 'next/dynamic'
@@ -21,7 +22,7 @@ export default function SettingsPage() {
           <div className="flex items-center gap-3 mb-3">
             <h3 className="text-sm font-semibold text-slate-900">Manajemen User</h3>
           </div>
-          {canManageUsers ? <Link href="/settings/users" className="mt-3 inline-block text-sm font-semibold text-brand-600">Kelola Pengguna</Link> : <p className="mt-3 text-xs text-slate-500">Hubungi Owner untuk mengelola akun.</p>}
+          {canManageUsers ? <div className="mt-3 flex justify-end"><Link href="/settings/users" className="inline-flex items-center justify-center rounded-lg bg-brand-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-brand-700">Kelola Pengguna</Link></div> : <p className="mt-3 text-xs text-slate-500">Hubungi Owner untuk mengelola akun.</p>}
         </div>
 
       </div>
@@ -30,20 +31,14 @@ export default function SettingsPage() {
       {connection.profile?.role === 'central_owner' ? <BranchManagementSettings /> : <div className="min-w-0 rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
         <h3 className="text-sm font-semibold text-slate-900 mb-4">Tahapan Produksi Aktif</h3>
         <div className="space-y-2">
-          {[
-            { seq: 1, code: 'ORDER_IN', name: 'Order Masuk', color: 'text-slate-700' },
-            { seq: 2, code: 'DESIGN', name: 'Proses Desain', color: 'text-slate-700' },
-            { seq: 3, code: 'DESIGN_DONE', name: 'Menunggu Pembayaran', color: 'text-slate-700' },
-            { seq: 4, code: 'PRINTING', name: 'Proses Sublim', color: 'text-slate-700' },
-            { seq: 5, code: 'PRESS', name: 'Proses Press', color: 'text-slate-700' },
-            { seq: 6, code: 'DONE', name: 'Order Selesai', color: 'text-slate-700' },
-            { seq: 7, code: 'ARCHIVE', name: 'Order Diterima Customer', color: 'text-slate-700' },
-          ].map(step => (
+          {BOARD_STAGES.map((stage, index) => {
+            const step = BOARD_STAGE_META[stage]
+            return (
             <div key={step.code} className="flex items-center gap-3 rounded-lg border border-slate-100 bg-slate-50 px-4 py-2.5">
-              <span className="flex h-6 w-6 items-center justify-center rounded-full bg-slate-200 text-xs font-bold text-slate-600">{step.seq}</span>
-              <span className={`inline-flex items-center rounded-md px-2 py-0.5 text-xs font-medium ${step.color}`}>{step.name}</span>
+              <span className="flex h-6 w-6 items-center justify-center rounded-full bg-slate-200 text-xs font-bold text-slate-600">{index + 1}</span>
+              <span className="inline-flex items-center rounded-md px-2 py-0.5 text-xs font-medium text-slate-700">{step.name}</span>
             </div>
-          ))}
+          )})}
         </div>
       </div>}
     </div>

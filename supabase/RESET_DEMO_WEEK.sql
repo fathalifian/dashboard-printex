@@ -115,12 +115,12 @@ BEGIN
         times := ARRAY[arrival]; t := arrival;
         FOR k IN 2..target LOOP
           duration := CASE stages[k-1]
-            WHEN 'ORDER_IN' THEN 10+floor(random()*70)::integer
-            WHEN 'DESIGN' THEN 35+floor(random()*190)::integer
-            WHEN 'DESIGN_DONE' THEN 15+floor(random()*240)::integer
-            WHEN 'PRINTING' THEN 25+ceil(meters*(1.0+random()*2))::integer
-            WHEN 'PRESS' THEN 20+ceil(meters*(0.6+random()))::integer
-            ELSE 30+floor(random()*420)::integer END;
+            WHEN 'ORDER_IN' THEN 5+floor(random()*45)::integer
+            WHEN 'DESIGN' THEN 5+floor(random()*30)::integer
+            WHEN 'DESIGN_DONE' THEN 10+floor(random()*90)::integer
+            WHEN 'PRINTING' THEN ceil(5+meters*(0.4+random()*0.2))::integer
+            WHEN 'PRESS' THEN ceil(3+meters*(0.25+random()*0.15))::integer
+            ELSE 30+floor(random()*240)::integer END;
           next_t := pg_temp.demo_advance(t,duration);
           EXIT WHEN next_t>cutoff;
           times := array_append(times,next_t); t := next_t;

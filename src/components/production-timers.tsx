@@ -1,16 +1,17 @@
 'use client'
 
-import { useMemo, useSyncExternalStore } from 'react'
+import { useMemo, useState, useSyncExternalStore } from 'react'
 import { BOARD_STAGE_META, useAllOrders, useProcessHistory, useOnlineConnection, type BoardOrder } from '@/lib/production-board'
 import { jakartaDate, type ProcessEvent, type ProcessStage } from '@/lib/process-metrics'
 import { formatDuration, orderTiming, createOrderTimingReader, TIMED_STAGES } from '@/lib/process-timing'
+import StoredTimingReport from './stored-timing-report'
 
 let now=0
 const listeners=new Set<()=>void>()
 let timer:ReturnType<typeof setInterval>|undefined
 function subscribe(listener:()=>void) {
   listeners.add(listener)
-  if(!timer){now=Date.now();timer=setInterval(()=>{now=Date.now();listeners.forEach(fn=>fn())},1000)}
+  if(!timer){now=Date.now();timer=setInterval(()=>{if(document.visibilityState !== 'visible')return;now=Date.now();listeners.forEach(fn=>fn())},1000)}
   return ()=>{listeners.delete(listener);if(!listeners.size){clearInterval(timer);timer=undefined}}
 }
 const idleSubscribe = () => () => {}
@@ -20,6 +21,12 @@ function useClock(active = true){return useSyncExternalStore(active ? subscribe 
 // scanning every order's complete history separately on each render.
 const historyIndexes = new WeakMap<ProcessEvent[], Map<string, ProcessEvent[]>>()
 const emptyEvents: ProcessEvent[] = []
+const orderIndexes = new WeakMap<BoardOrder[], Map<string, BoardOrder>>()
+function orderIndex(orders: BoardOrder[]) {
+  let index = orderIndexes.get(orders)
+  if (!index) { index = new Map(orders.map(order => [order.id, order])); orderIndexes.set(orders, index) }
+  return index
+}
 let previousIndex = new Map<string, ProcessEvent[]>()
 function historyIndex(history: ProcessEvent[]) {
   let index = historyIndexes.get(history)
@@ -42,7 +49,7 @@ function historyIndex(history: ProcessEvent[]) {
 
 export function OrderTimer({id,detail=false,hideTotal=false}:{id:string;detail?:boolean;hideTotal?:boolean}) {
   const orders=useAllOrders(), history=useProcessHistory()
-  const order=useMemo(()=>orders.find(row=>row.id===id),[orders,id])
+  const order=orderIndex(orders).get(id)
   const orderEvents=historyIndex(history).get(id) ?? emptyEvents
   const reader=useMemo(()=>order ? createOrderTimingReader(order,orderEvents) : null,[order,orderEvents])
   const baseline=useMemo(()=>reader?.(0),[reader])
@@ -72,6 +79,10 @@ export function OrderTimer({id,detail=false,hideTotal=false}:{id:string;detail?:
 }
 
 export function ProcessTimingReport({stage,start,end}:{stage:ProcessStage;start:string;end:string}) {
+  const status=useOnlineConnection()
+  return status.reportSummariesEnabled?<StoredTimingReport key={stage+start+end} stage={stage} start={start} end={end}/>:<RawTimingReport stage={stage} start={start} end={end}/>
+}
+function RawTimingReport({stage,start,end}:{stage:ProcessStage;start:string;end:string}) {
   const connection=useOnlineConnection()
   const orders=useAllOrders(),history=useProcessHistory()
   const indexed=historyIndex(history)
@@ -93,9 +104,62 @@ export function ProcessTimingReport({stage,start,end}:{stage:ProcessStage;start:
     </div>
     {!!stageRows.length&&<details key={stage+start+end} className="group mt-4 border-t border-slate-100 pt-3">
       <summary className="list-none cursor-pointer text-sm font-semibold text-brand-600 [&::-webkit-details-marker]:hidden"><span className="group-open:hidden">Buka rincian order ({stageRows.length})</span><span className="hidden group-open:inline">Tutup rincian order</span></summary>
-      <div className="mt-3 max-h-80 overflow-auto"><table className="w-full text-left text-sm"><thead><tr className="text-slate-500"><th className="py-2">SPK</th><th>Cabang</th>{!totalStage&&<th>Durasi tahap</th>}<th>Total produksi</th></tr></thead><tbody>{stageRows.map(({order,timing})=><tr key={order.id} className="border-t border-slate-100 text-slate-700"><td className="py-2">{order.spk_code}</td><td>{connection.branches?.find(branch=>branch.id===order.branch_id)?.name??'Belum tercatat'}</td>{!totalStage&&<td>{formatDuration(timing.stages[stage].milliseconds)}</td>}<td><ReportTotal order={order} events={indexed.get(order.id) ?? emptyEvents} /></td></tr>)}</tbody></table></div>
+      <TimingDetailsTable stageRows={stageRows} totalStage={totalStage} stage={stage} connection={connection} indexed={indexed} />
     </details>}
   </section>
+}
+
+function TimingDetailsTable({ stageRows, totalStage, stage, connection, indexed }: {
+  stageRows: Array<{ order: BoardOrder; timing: ReturnType<typeof orderTiming> }>
+  totalStage: boolean
+  stage: ProcessStage
+  connection: ReturnType<typeof useOnlineConnection>
+  indexed: Map<string, ProcessEvent[]>
+}) {
+  const [page, setPage] = useState(1)
+  const pageSize = 50
+  const totalPages = Math.max(1, Math.ceil(stageRows.length / pageSize))
+  const currentPage = Math.min(page, totalPages)
+  const pagedRows = useMemo(() => {
+    const startIdx = (currentPage - 1) * pageSize
+    return stageRows.slice(startIdx, startIdx + pageSize)
+  }, [stageRows, currentPage, pageSize])
+  const branchMap = useMemo(() => new Map((connection.branches ?? []).map(b => [b.id, b.name])), [connection.branches])
+
+  return (
+    <div className="mt-3 max-h-80 overflow-auto">
+      <table className="w-full text-left text-sm">
+        <thead>
+          <tr className="text-slate-500">
+            <th className="py-2">SPK</th>
+            <th>Cabang</th>
+            {!totalStage && <th>Durasi tahap</th>}
+            <th>Total produksi</th>
+          </tr>
+        </thead>
+        <tbody>
+          {pagedRows.map(({ order, timing }) => (
+            <tr key={order.id} className="border-t border-slate-100 text-slate-700">
+              <td className="py-2">{order.spk_code}</td>
+              <td>{(order.branch_id ? branchMap.get(order.branch_id) : undefined) ?? 'Belum tercatat'}</td>
+              {!totalStage && <td>{formatDuration(timing.stages[stage].milliseconds)}</td>}
+              <td><ReportTotal order={order} events={indexed.get(order.id) ?? emptyEvents} /></td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      {totalPages > 1 && (
+        <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 py-2 text-xs text-slate-500">
+          <span>Menampilkan {(currentPage - 1) * pageSize + 1}–{Math.min(currentPage * pageSize, stageRows.length)} dari {stageRows.length} order</span>
+          <div className="flex items-center gap-2">
+            <button type="button" disabled={currentPage <= 1} onClick={() => setPage((p: number) => Math.max(1, p - 1))} className="rounded border border-slate-200 px-2.5 py-1 text-xs font-semibold hover:bg-slate-50 disabled:opacity-40">Sebelumnya</button>
+            <span>Hal {currentPage} dari {totalPages}</span>
+            <button type="button" disabled={currentPage >= totalPages} onClick={() => setPage((p: number) => Math.min(totalPages, p + 1))} className="rounded border border-slate-200 px-2.5 py-1 text-xs font-semibold hover:bg-slate-50 disabled:opacity-40">Berikutnya</button>
+          </div>
+        </div>
+      )}
+    </div>
+  )
 }
 
 function ReportTotal({order,events}:{order:BoardOrder;events:ProcessEvent[]}) {

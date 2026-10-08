@@ -20,7 +20,7 @@ export function canManageOrders(role: unknown) {
 }
 export function canManageUsers(role: unknown) { return normalizeRole(role) === 'central_owner' || normalizeRole(role) === 'owner' }
 
-export const OPERATOR_STAGES: readonly ProcessStage[] = ['design_done', 'printing', 'press', 'done']
+const OPERATOR_STAGES: readonly ProcessStage[] = ['design_done', 'printing', 'press', 'done']
 export function canDragStage(role: unknown, stage: ProcessStage) {
   return stage !== 'archive' && (canManageOrders(role) || (normalizeRole(role) === 'operator' && OPERATOR_STAGES.includes(stage)))
 }

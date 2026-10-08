@@ -27,6 +27,8 @@ function render(kind, status = {}) {
     BOARD_STAGE_META: Object.fromEntries(metrics.PROCESS_STAGES.map(stage => [stage, { name: stage }])),
   }
   const Component = compile('../src/components/report-rooms.tsx', name => {
+    if (name === '@/components/report-status') return {__esModule:true,default:()=>null}
+    if (name === '@/lib/report-summaries') return {useDailySummary:()=>({enabled:false,loading:false,error:'',rows:[]})}
     if (name === '@/lib/production-board') return board
     if (name === '@/lib/process-metrics') return metrics
     if (name === '@/lib/room-navigation') return compile('../src/lib/room-navigation.ts')

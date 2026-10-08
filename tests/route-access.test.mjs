@@ -46,3 +46,12 @@ test('owner/admin access, inactive accounts, unknown roles and unauthenticated r
   assert.equal((await middleware('operator',true,false)(request('/schedule'))).headers.get('location'),'https://printex.example/login')
   assert.equal((await middleware('operator',true,false)(request('/login'))).status,200)
 })
+
+test('API requests reach their authentication handler without page redirects and retain refreshed cookies',async()=>{
+  for(const handler of [middleware('operator'),middleware('operator',true,false),middleware('owner',false)]) {
+    const response=await handler(new NextRequest('https://printex.example/api/reports'))
+    assert.equal(response.status,200)
+    assert.equal(response.headers.get('location'),null)
+    assert.equal(response.cookies.get('refreshed-session')?.value,'fixture')
+  }
+})

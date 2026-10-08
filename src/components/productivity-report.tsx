@@ -1,5 +1,6 @@
 ﻿'use client'
 
+import { useDailySummary, total } from '@/lib/report-summaries'
 import { memo, useMemo, useState } from 'react'
 import { Clock3, Gauge, Layers3, Printer } from 'lucide-react'
 import { formatDuration } from '@/lib/process-timing'
@@ -20,7 +21,8 @@ function ProductivityReport({ orders, history, start, end, scope }: {
   orders: ProductivityOrder[]; history: ProcessEvent[]; start: string; end: string; scope: string
 }) {
   const [paperWidth, setPaperWidth] = useState<ProductivityPaperWidth>('all')
-  const rows = useMemo(() => productivityRows(orders, history, start, end, paperWidth), [orders, history, start, end, paperWidth])
+  const saved=useDailySummary(start,end)
+  const rows = useMemo(() => saved.enabled?{sublim:[],dtf:[],press:[]}:productivityRows(orders, history, start, end, paperWidth), [orders, history, start, end, paperWidth,saved.enabled])
   const validRange = Number.isFinite(Date.parse(start)) && Number.isFinite(Date.parse(end)) && start <= end
 
   return <section aria-labelledby="productivity-title" className="min-w-0 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
@@ -42,7 +44,9 @@ function ProductivityReport({ orders, history, start, end, scope }: {
     <div className="p-5 sm:p-6">
       <div className="grid gap-4 lg:grid-cols-3">
         {processes.map(({ key, label, icon: Icon, color }) => {
-          const summary = summarizeProductivity(rows[key])
+          const aggregate=total(saved.rows.filter(row=>row.dimension.startsWith(key+':')&&(paperWidth==='all'||key==='dtf'||row.dimension.endsWith(':'+paperWidth)||row.dimension==='press:dtf')),'productivity')
+          const hours=aggregate.milliseconds/3600000
+          const summary = saved.enabled?{orderCount:aggregate.count,totalMeter:aggregate.meter,totalMilliseconds:aggregate.milliseconds,hours,productivity:hours>0&&aggregate.meter>0?aggregate.meter/hours:null,cycleTimeSecondsPerMeter:aggregate.meter>0?aggregate.milliseconds/1000/aggregate.meter:null,averageDurationMilliseconds:aggregate.count?aggregate.milliseconds/aggregate.count:null}:summarizeProductivity(rows[key])
           return <article key={key} aria-labelledby={`productivity-${key}`} className="min-w-0 rounded-2xl border border-slate-200 bg-white p-5 sm:p-6">
             <div className="flex flex-wrap items-start justify-between gap-2">
               <div className="flex items-center gap-3"><span className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ${color}`}><Icon aria-hidden="true" className="h-5 w-5" /></span><div><h3 id={`productivity-${key}`} className="text-base font-semibold text-slate-900">{label}</h3></div></div>

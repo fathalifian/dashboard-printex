@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs'
 import ts from 'typescript'
 
 // Exercise form submissions across rerenders with network outcomes under our control.
-function pageHarness({ failPhoto = false } = {}) {
+function pageHarness({ failPhoto = false, spkCode = 'TEST-SPK-001' } = {}) {
   const values = [], calls = { created: [], uploaded: [], routes: [] }
   let cursor = 0
   const react = {
@@ -52,8 +52,21 @@ function pageHarness({ failPhoto = false } = {}) {
     return null
   }
   const submit = () => find(render(), node => node.type === 'form').props.onSubmit({ preventDefault() {} })
+  find(render(), node => node.props?.name === 'spkCode').props.onChange({target:{name:'spkCode',value:spkCode}})
   return { calls, render, find, submit }
 }
+
+test('new order submits the manually entered SPK and rejects whitespace-only codes',async()=>{
+ const page=pageHarness({spkCode:'  CUSTOMER-SPK-009  '})
+ assert.equal(page.find(page.render(),node=>node.props?.name==='spkCode').props.required,true)
+ await page.submit()
+ assert.equal(page.calls.created[0].input.spkCode,'CUSTOMER-SPK-009')
+ const empty=pageHarness({spkCode:'   '})
+ await empty.submit()
+ assert.equal(empty.calls.created.length,0)
+ assert.equal(empty.calls.routes.length,0)
+ assert.match(empty.find(empty.render(),node=>node.props?.role==='alert').props.children,/Kode SPK wajib diisi/)
+})
 
 test('order without optional photo saves normally without a storage request', async () => {
   const page = pageHarness()

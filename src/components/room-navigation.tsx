@@ -2,13 +2,18 @@
 
 import { useEffect } from 'react'
 import { usePathname } from 'next/navigation'
-import { selectBranch, useOnlineConnection } from '@/lib/production-board'
+import { selectBranch, selectDataView, selectDataOrder, useOnlineConnection } from '@/lib/production-board'
 import { recordRoomNavigation, useRoomUrl } from '@/lib/room-navigation'
 
 export default function RoomNavigation() {
   const status = useOnlineConnection()
   const pathname = usePathname()
   const href = useRoomUrl()
+  useEffect(() => {
+    const id = /^\/orders\/([0-9a-f-]{36})(?:\/edit)?$/i.exec(pathname)?.[1] ?? null
+    selectDataOrder(id)
+    selectDataView(/^\/(reports|archives|settings)(?:\/|$)/.test(pathname))
+  },[pathname])
   useEffect(() => {
     if (!href || status.state !== 'ready' || status.busy || !status.branches?.length) return
     const url = new URL(href)

@@ -5,7 +5,7 @@ import { runInNewContext } from 'node:vm'
 import ts from 'typescript'
 
 const codes=['ORDER_IN','DESIGN','DESIGN_DONE','PRINTING','PRESS','DONE','ARCHIVE']
-function backend(pilot = false, incremental = false) {
+function backend(pilot = false, incremental = false, scoped = false, summaries = false) {
   const state={orders:[],customers:[],production_steps:codes.map((code,index)=>({id:String(index),code})),process_history:[],profiles:[{id:'user',full_name:'Admin',role:'owner',is_active:true}]}
   const branches=[{id:'salatiga',name:'Salatiga'},{id:'semarang',name:'Semarang'}]
   if(pilot) state.profiles[0].role='central_owner'
@@ -38,6 +38,26 @@ function backend(pilot = false, incremental = false) {
       }}
     },
     async rpc(name,args){
+      if(name==='printex_scoped_snapshot') {
+        if(!scoped) return {error:{code:'PGRST202'}}
+        const date=value=>String(value??'').slice(0,10)
+        const eligible=new Set(state.orders.filter(row=>(!args.p_branch||row.branch_id===args.p_branch)&&(
+          !row.archive_finalized_at || row.id===args.p_order || date(row.order_date)>=args.p_start&&date(row.order_date)<=args.p_end
+          || date(row.archive_finalized_at)>=args.p_start&&date(row.archive_finalized_at)<=args.p_end)).map(row=>row.id))
+        for(const event of state.process_history) if((!args.p_branch||event.branch_id===args.p_branch)&&date(event.occurred_at)>=args.p_start&&date(event.occurred_at)<=args.p_end) eligible.add(event.order_identity??event.order_id)
+        const rows=state.orders.filter(row=>eligible.has(row.id)&&(!args.p_branch||row.branch_id===args.p_branch))
+        const customers=new Set(rows.map(row=>row.customer_id))
+        const data={orders:rows,customers:state.customers.filter(row=>customers.has(row.id)),production_steps:state.production_steps,
+          process_history:state.process_history.filter(row=>eligible.has(row.order_identity??row.order_id)&&(!args.p_branch||row.branch_id===args.p_branch))}
+        for(const table of Object.keys(data)) if(args.p_changes!==null) data[table]=data[table].filter(row=>args.p_changes.some(change=>change.table===table&&change.id===row.id))
+        const histories=data.process_history.filter(row=>!args.p_history_after||row.id>args.p_history_after).sort((a,b)=>a.id.localeCompare(b.id))
+        data.process_history=histories.slice(0,5000)
+        data.history_more=histories.length>5000
+        data.history_cursor=data.process_history.at(-1)?.id
+        data.identities=[...eligible]
+        if(args.p_history_only) for(const table of ['orders','customers','production_steps']) data[table]=[]
+        return {data:structuredClone(data)}
+      }
       if(name==='printex_sync_changes') {
         if(!incremental) return {error:{code:'PGRST202'}}
         const current=new Map()
@@ -50,7 +70,7 @@ function backend(pilot = false, incremental = false) {
         seen.clear();for(const [key,value] of current)seen.set(key,value)
         return {data:{cursor:String(revision),changes:args.p_after===null?[]:[...changes.values()].filter(change=>change.revision>Number(args.p_after)&&(!args.p_branch||change.branch===args.p_branch||change.table==='production_steps'))}}
       }
-      if(name==='printex_online_status')return {data:{schema_version:8,branches_enabled:pilot,realtime_tables:Object.keys(state)}}
+      if(name==='printex_online_status')return {data:{schema_version:8,branches_enabled:pilot,daily_summaries_enabled:summaries,realtime_tables:Object.keys(state)}}
       if(name==='printex_branch_context')return {data:{branches,central:state.profiles[0].role==='central_owner',branchId:state.profiles[0].branch_id}}
       if (name === 'printex_claim_photo_cleanup') return { data: [...photos.keys()].filter(path => (!args.p_path || args.p_path === path) && !state.orders.some(order => order.photo_path === path)).map(path => ({ path })) }
       const row=state.orders.find(row=>row.id===args.p_order_id)
@@ -78,7 +98,7 @@ function device(client) {
   const cache={};let storageWrites=0;const events={};const polls=new Map();let pollId=0
   const document={visibilityState:'visible',addEventListener(name,callback){events[name]=callback}}
   function load(name) {
-    if(name==='react')return {useSyncExternalStore(subscribe,getSnapshot){subscribe(()=>{});return getSnapshot()}}
+    if(name==='react')return {useEffect(callback){callback()},useRef(current){return {current}},useSyncExternalStore(subscribe,getSnapshot){subscribe(()=>{});return getSnapshot()}}
     if(name==='@/lib/supabase/client')return {createClient:()=>client}
     if(name==='@/lib/order-photo')return {ORDER_PHOTO_BUCKET:'order-photos',compressOrderPhoto:async file=>{
       if (!['image/jpeg','image/png','image/webp'].includes(file.type)) throw new Error('Pilih foto JPG, PNG, atau WebP.')
@@ -94,6 +114,70 @@ function device(client) {
   return {board:load('@/lib/production-board'),writes:()=>storageWrites,events,document,polls}
 }
 async function waitFor(check){for(let i=0;i<100;i++){if(check())return;await new Promise(resolve=>setTimeout(resolve,5))}assert.fail('State did not synchronize')}
+
+test('scoped client avoids old archives, loads full historical details on demand and reuses unchanged data',async()=>{
+ const api=backend(false,true,true),a=device(api.client)
+ for(let i=0;i<1000;i++) api.state.orders.push({id:'old-'+i,spk_code:'OLD-'+i,current_step_id:'6',version:1,production_type:'DTF',meter:1,order_date:'2020-01-01',archived_at:'2020-01-02T00:00:00Z',archive_finalized_at:'2020-01-02T00:00:00Z'})
+ api.state.orders.push({id:'active',spk_code:'ACTIVE',current_step_id:'0',version:1,production_type:'DTF',meter:1,order_date:'2020-01-01'})
+ api.state.process_history.push({id:'old-event',order_identity:'old-0',order_id:'old-0',step_id:'3',event_kind:'completed',occurred_at:'2020-01-02T00:00:00Z'})
+ a.board.useOnlineConnection()
+ await waitFor(()=>a.board.useOnlineConnection().state==='ready')
+ assert.equal(a.board.useOnlineConnection().scopedLoading,true)
+ assert.deepEqual(Array.from(a.board.useAllOrders(),row=>row.id),['active'])
+ assert.equal(a.board.useProcessHistory().length,0)
+ const initial=a.board.useAllOrders()
+ await a.board.refreshOnlineData()
+ assert.equal(a.board.useAllOrders(),initial)
+ a.board.selectDataOrder('old-0')
+ await waitFor(()=>!a.board.useOnlineConnection().dataLoading)
+ assert.equal(a.board.useAllOrders().length,2)
+ assert.equal(a.board.useProcessHistory().length,1)
+ a.board.selectDataOrder(null)
+ a.board.useDataRange('2020-01-01','2020-01-02')
+ await waitFor(()=>a.board.useOnlineConnection().dataRange.start==='2020-01-01'&&!a.board.useOnlineConnection().dataLoading)
+ assert.equal(a.board.useAllOrders().length,1001)
+})
+
+test('compact history restores exact destination entries for timing and report calculations',async()=>{
+ const api=backend(false,true,true),a=device(api.client)
+ api.state.orders.push({id:'active',spk_code:'ACTIVE',current_step_id:'2',version:1,production_type:'DTF',meter:1,order_date:'2020-01-01'})
+ api.state.process_history.push(
+  {id:'initial',order_identity:'active',step_id:'0',event_kind:'entered',occurred_at:'2020-01-01T00:00:00Z'},
+  {id:'transition-1',order_identity:'active',step_id:'0',event_kind:'completed',occurred_at:'2020-01-01T01:00:00Z',next_step_id:'1',next_event_id:'design-entry'},
+  {id:'transition-2',order_identity:'active',step_id:'1',event_kind:'completed',occurred_at:'2020-01-01T02:00:00Z',next_step_id:'2',next_event_id:'payment-entry'},
+ )
+ a.board.useOnlineConnection()
+ await waitFor(()=>a.board.useOnlineConnection().state==='ready')
+ const history=Array.from(a.board.useProcessHistory())
+ assert.equal(history.length,5)
+ assert.deepEqual(history.filter(e=>e.kind==='entered').map(e=>[e.id,e.stage,e.occurredAt]).sort(),[
+  ['design-entry','design','2020-01-01T01:00:00Z'],['initial','incoming','2020-01-01T00:00:00Z'],['payment-entry','design_done','2020-01-01T02:00:00Z'],
+ ].sort())
+})
+
+test('paged histories publish atomically and a failed later page can be retried without advancing sync',async()=>{
+ const api=backend(false,true,true),a=device(api.client)
+ api.state.orders.push({id:'active',spk_code:'ACTIVE',current_step_id:'0',version:1,production_type:'DTF',meter:1,order_date:'2020-01-01'})
+ for(let i=0;i<5002;i++) api.state.process_history.push({id:String(i).padStart(6,'0'),order_identity:'active',step_id:'3',event_kind:'entered',occurred_at:'2020-01-01T00:00:00Z'})
+ const rpc=api.client.rpc
+ let fail=true,pages=0
+ api.client.rpc=async(name,args)=>{
+  if(name==='printex_scoped_snapshot'&&args.p_history_only){
+   pages++
+   assert.equal(a.board.useProcessHistory().length,0,'Partial pages are never published')
+   if(fail) return {error:{message:'Page temporarily unavailable'}}
+  }
+  return rpc(name,args)
+ }
+ a.board.useOnlineConnection()
+ await waitFor(()=>a.board.useOnlineConnection().state==='error')
+ assert.equal(a.board.useAllOrders().length,0)
+ fail=false
+ await a.board.refreshOnlineData()
+ assert.equal(a.board.useOnlineConnection().state,'ready')
+ assert.equal(a.board.useProcessHistory().length,5002)
+ assert.equal(pages,2)
+})
 
 test('branch realtime scopes inserts/updates, ignores unrelated deletes, and rebuilds after access changes',async()=>{
  const b=backend(true,true);b.state.profiles[0].role='admin';b.state.profiles[0].branch_id='salatiga'
@@ -453,4 +537,30 @@ test('incremental capability recovers after migration becomes available without 
  const orders=a.board.useAllOrders()
  await a.board.refreshOnlineData()
  assert.equal(a.board.useAllOrders(),orders)
+})
+
+
+test('saved reports and settings avoid raw snapshots; returning to board restores live data',async()=>{
+ const api=backend(true,true,true,true)
+ api.state.orders.push({id:'active',branch_id:'salatiga',spk_code:'ACTIVE',current_step_id:'0',version:1,production_type:'DTF',meter:1,order_date:'2026-10-02'})
+ let scopedReads=0
+ const original=api.client.rpc.bind(api.client)
+ api.client.rpc=(name,args)=>{if(name==='printex_scoped_snapshot')scopedReads++;return original(name,args)}
+ const a=device(api.client)
+ a.board.selectDataView(true)
+ a.board.useOnlineConnection()
+ await waitFor(()=>a.board.useOnlineConnection().state==='ready')
+ assert.equal(a.board.useOnlineConnection().reportSummariesEnabled,true)
+ assert.equal(scopedReads,0)
+ assert.equal(a.board.useAllOrders().length,0)
+ await a.board.refreshOnlineData()
+ assert.equal(scopedReads,0)
+ a.board.selectDataView(false)
+ await waitFor(()=>!a.board.useOnlineConnection().dataLoading)
+ assert.equal(a.board.useAllOrders()[0].spk_code,'ACTIVE')
+ assert.equal(scopedReads,1)
+ a.board.selectDataView(true)
+ await waitFor(()=>!a.board.useOnlineConnection().dataLoading)
+ assert.equal(a.board.useAllOrders().length,0)
+ assert.equal(a.board.useProcessHistory().length,0)
 })

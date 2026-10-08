@@ -1,6 +1,8 @@
 export const PROCESS_STAGES = ['incoming', 'design', 'design_done', 'printing', 'press', 'done', 'archive'] as const
+export const BOARD_STAGES = ['incoming', 'design', 'design_done', 'printing', 'press', 'done'] as const
 export type ProcessStage = typeof PROCESS_STAGES[number]
 export type ProcessEvent = {
+  orderExists?: boolean
   branchId?: string
   id: string
   orderId: string
@@ -56,4 +58,10 @@ export function processReportEvents(history: ProcessEvent[], orders: Array<{
       customerName: order.customer.name, stage: 'archive', kind: 'completed', occurredAt: at, actorName: null }]
   })
   return uniqueProcessEvents([...history.filter(event => event.kind !== 'returned' && event.stage !== 'archive'), ...completedArchives])
+}
+
+// Six process reports: Done completes only once the customer receives the order.
+export function completionReportEvents(history: ProcessEvent[], orders: Parameters<typeof processReportEvents>[1]) {
+  return processReportEvents(history,orders).filter(event=>event.kind==='completed'&&event.stage!=='done')
+    .map(event=>event.stage==='archive'?{...event,stage:'done' as const}:event)
 }

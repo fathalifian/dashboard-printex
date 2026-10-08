@@ -16,6 +16,22 @@ const now=new Date('2026-09-26T00:30:00+07:00')
 const makeOrder=(id,branch_id,extra={})=>({id,branch_id,spk_code:id,customer:{name:'Customer',phone:''},production_type:'DTF',meter:100,order_state:'active',board_stage:'printing',due_at:'2026-09-25',order_date:'2026-09-26',created_at:'2026-09-24T01:00:00Z',archive:null,...extra})
 const event=(id,orderId,stage,kind,occurredAt,extra={})=>({id,orderId,spkCode:orderId,stage,kind,occurredAt,actorName:'Operator',customerName:'Customer',...extra})
 
+test('large multi-day summaries index orders once rather than once per chart day',()=>{
+ let idReads=0
+ const orders=Array.from({length:5000},(_,i)=>{
+  const id='bulk-'+i
+  return {...makeOrder(id,i%2?'a':'b'),get id(){idReads++;return id}}
+ })
+ const history=orders.map((order,i)=>event(String(i),order.id,'printing','completed','2026-09-25T17:10:00Z'))
+ idReads=0
+ const result=centralDashboard(orders,history,branches,'2026-07-01','2026-10-01',now)
+ assert.equal(result.output.dtf.count,5000)
+ assert.equal(result.output.dtf.meter,500000)
+ assert.equal(result.trend.reduce((sum,day)=>sum+day.dtf.count,0),5000)
+ assert.equal(result.rows.reduce((sum,branch)=>sum+branch.output.dtf.count,0),5000)
+ assert.ok(idReads < orders.length*10,`Indexed orders ${idReads} times`)
+})
+
 test('central output matches the sum of branches and print completions count once',()=>{
  const orders=[makeOrder('a1','a'),makeOrder('b1','b',{production_type:'Batik',meter:50}),makeOrder('x','outside',{meter:999})]
  const history=[

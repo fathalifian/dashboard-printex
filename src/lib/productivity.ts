@@ -1,7 +1,7 @@
 import { jakartaDate, type ProcessEvent } from './process-metrics'
 import { orderTiming, type TimedOrder } from './process-timing'
 
-export type ProductivityProcess = 'sublim' | 'dtf' | 'press'
+type ProductivityProcess = 'sublim' | 'dtf' | 'press'
 export type ProductivityPaperWidth = 'all' | '1.2' | '1.6' | '1.8'
 export type ProductivityOrder = TimedOrder & {
   spk_code: string
@@ -9,7 +9,7 @@ export type ProductivityOrder = TimedOrder & {
   paper_width?: string | null
   meter: number
 }
-export type ProductivityRow = {
+type ProductivityRow = {
   orderId: string
   spkCode: string
   productionType: string
@@ -18,7 +18,7 @@ export type ProductivityRow = {
   meter: number
   durationMilliseconds: number
 }
-export type ProductivitySummary = {
+type ProductivitySummary = {
   orderCount: number
   totalMeter: number
   totalMilliseconds: number

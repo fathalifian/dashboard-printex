@@ -24,4 +24,6 @@ Tes browser membutuhkan Chrome lokal atau `npx playwright install chromium`. CI 
 
 ## Operasi
 
-Jalankan `npm start` setelah build. Error halaman menyediakan Coba lagi; error koneksi setelah sinkronisasi awal mencoba mengambil ulang data tanpa menghapus formulir. Perpindahan tahap pada board menggunakan drag-and-drop sesuai hak akses pengguna. Riwayat lengkap dipertahankan untuk perhitungan laporan; sinkronisasi setelah pemuatan pertama hanya mengambil perubahan setelah migrasi 0021.
+Jalankan `npm start` setelah build. Error halaman menyediakan Coba lagi; error koneksi setelah sinkronisasi awal mencoba mengambil ulang data tanpa menghapus formulir. Perpindahan tahap pada board menggunakan drag-and-drop sesuai hak akses pengguna. Pemuatan order mengikuti cakupan halaman dan periode; sinkronisasi berikutnya mengambil perubahan setelah migrasi 0021. Lihat [pemuatan berdasarkan periode](docs/scoped-dashboard-loading.md) dan [ringkasan laporan harian](docs/daily-report-summaries.md) untuk alur laporan saat ini.
+
+Dokumen di `printex-website-reference.md/` merupakan referensi desain awal dan dapat berbeda dari implementasi saat ini. Hasil audit pembersihan tersedia di [audit proyek](docs/project-cleanup.md).

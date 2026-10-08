@@ -1,6 +1,6 @@
 # Printex Order Monitoring — Website Reference Docs
 
-Dokumentasi ini adalah **source of truth** untuk membangun website internal **Printex Order Monitoring** berdasarkan prototype Figma Make yang diberikan.
+Dokumentasi ini merupakan **referensi desain awal** website internal **Printex Order Monitoring** berdasarkan prototype Figma Make. Role, tahapan, impor data, penjadwalan, dan kontrak API di sini dapat berbeda dari implementasi saat ini. Gunakan [README proyek](../README.md), kode aktif, migrasi, dan dokumentasi operasional di `docs/` sebagai acuan kondisi sekarang.
 
 ## Tujuan sistem
 

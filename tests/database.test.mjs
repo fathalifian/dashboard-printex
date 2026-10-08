@@ -32,6 +32,107 @@ const id='11111111-0000-4000-8000-000000000001'
 async function mutate(action,data={},version=null,orderId=id) { return db.query('SELECT public.printex_mutate_order($1,$2,$3,$4)',[action,orderId,version,data]) }
 async function order(){return (await db.query('SELECT * FROM orders WHERE id=$1',[id])).rows[0]}
 
+test('scoped snapshot keeps active orders, period archives and full histories without old unrelated archives',async()=>{
+ await db.exec('BEGIN; RESET ROLE;')
+ try {
+  // Historical fixtures are inserted by the migration owner inside a rollback.
+  await db.exec('ALTER TABLE orders DISABLE TRIGGER orders_enforce_archiving')
+  const ids=['aaaaaaaa-0000-4000-8000-000000000001','aaaaaaaa-0000-4000-8000-000000000002','aaaaaaaa-0000-4000-8000-000000000003']
+  const customer=(await db.query("INSERT INTO customers(name) VALUES('Scope Test') RETURNING id")).rows[0].id
+  for(const [i,orderId] of ids.entries()){
+   const finalized=i===0?null:i===1?'2026-01-02T00:00:00Z':'2026-10-01T01:00:00Z'
+   await db.query(`INSERT INTO orders(id,spk_code,customer_id,production_type,meter,current_step_id,order_date,
+    archived_at,archive_finalized_at,delivery_method,completed_at)
+    VALUES($1,$2,$3,'DTF',10,(SELECT id FROM production_steps WHERE code=$4),'2026-01-01',$5,$5,$6,$5)`,
+    [orderId,'SCOPE-'+i,customer,i===0?'ORDER_IN':'ARCHIVE',finalized,finalized?'pickup':null])
+  }
+  await db.query('DELETE FROM process_history WHERE order_id=ANY($1::uuid[])',[ids])
+  for(const [i,orderId] of ids.entries()){
+   for(const [kind,at] of [['entered','2026-01-01T00:00:00Z'],['completed',i===2?'2026-10-01T00:00:00Z':'2026-01-02T00:00:00Z']]){
+    await db.query(`INSERT INTO process_history(order_id,spk_code,step_id,event_kind,occurred_at)
+     VALUES($1,$2,(SELECT id FROM production_steps WHERE code='PRINTING'),$3,$4)`,[orderId,'SCOPE-'+i,kind,at])
+   }
+  }
+  await db.exec('ALTER TABLE orders ENABLE TRIGGER orders_enforce_archiving; SET ROLE authenticated')
+  const snapshot=async(start,end,detail=null,changes=null)=>(await db.query('SELECT printex_scoped_snapshot($1,$2,NULL,$3,$4) AS data',[start,end,detail,changes])).rows[0].data
+  const today=await snapshot('2026-10-01','2026-10-01')
+  assert.deepEqual(today.orders.map(o=>o.id).sort(),[ids[0],ids[2]])
+  assert.equal(today.process_history.filter(h=>h.order_identity===ids[2]).length,2,'Retains entries before the selected period')
+  assert.equal(today.process_history.some(h=>h.order_identity===ids[1]),false)
+  assert.equal(today.customers.length,1)
+  const january=await snapshot('2026-01-01','2026-01-02')
+  assert.equal(january.orders.length,3)
+  const detail=await snapshot('2026-10-01','2026-10-01',ids[1])
+  assert.equal(detail.orders.length,3,'Direct details can include an archive outside the report period')
+  const delta=await snapshot('2026-10-01','2026-10-01',null,[{table:'orders',id:ids[2]}])
+  assert.deepEqual(delta.orders.map(o=>o.id),[ids[2]])
+  assert.equal(delta.process_history.length,0)
+  await db.exec('RESET ROLE')
+  await db.query(`INSERT INTO process_history(order_id,spk_code,step_id,event_kind,occurred_at)
+   SELECT $1,'SCOPE-0',(SELECT id FROM production_steps WHERE code='PRINTING'),'entered','2026-01-01'::timestamptz
+   FROM generate_series(1,5002)`,[ids[0]])
+  await db.exec('SET ROLE authenticated')
+  const first=await snapshot('2026-10-01','2026-10-01')
+  assert.equal(first.process_history.length,5000)
+  assert.equal(first.history_more,true)
+  const second=(await db.query('SELECT printex_scoped_snapshot($1,$2,NULL,NULL,NULL,$3,true,$4) AS data',
+   ['2026-10-01','2026-10-01',first.history_cursor,first.identities])).rows[0].data
+  assert.equal(second.history_more,false)
+  assert.equal(second.orders.length,0)
+  const all=[...first.process_history,...second.process_history]
+  assert.equal(all.length,5006)
+  assert.equal(new Set(all.map(h=>h.id)).size,5006,'Pages preserve every history exactly once')
+  await assert.rejects(()=>snapshot('2026-10-02','2026-10-01'),/Rentang/)
+ } finally { await db.exec('ROLLBACK; SET ROLE authenticated;') }
+})
+
+test('manual SPK creation trims the code, retries safely and rolls back duplicate/empty codes',async()=>{
+ await db.exec('BEGIN')
+ try {
+  const manual='cccccccc-0000-4000-8000-000000000001',other='cccccccc-0000-4000-8000-000000000002'
+  await mutate('create',{...input,spkCode:'  CUSTOMER-SPK-001  '},null,manual)
+  assert.equal((await db.query('SELECT spk_code FROM orders WHERE id=$1',[manual])).rows[0].spk_code,'CUSTOMER-SPK-001')
+  await mutate('create',{...input,spkCode:'CUSTOMER-SPK-001'},null,manual)
+  assert.equal((await db.query('SELECT count(*)::int AS count FROM orders WHERE id=$1',[manual])).rows[0].count,1)
+  const customers=(await db.query('SELECT count(*)::int AS count FROM customers')).rows[0].count
+  await db.exec('SAVEPOINT invalid_spk')
+  await assert.rejects(()=>mutate('create',{...input,spkCode:'CUSTOMER-SPK-001'},null,other),error=>error.code==='23505')
+  await db.exec('ROLLBACK TO SAVEPOINT invalid_spk')
+  assert.equal((await db.query('SELECT count(*)::int AS count FROM customers')).rows[0].count,customers)
+  await assert.rejects(()=>mutate('create',{...input,spkCode:'   '},null,other),/Kode SPK wajib/)
+ } finally {await db.exec('ROLLBACK')}
+})
+
+test('compact transitions keep timing destinations and received orders finalize directly',async()=>{
+ await db.exec('BEGIN')
+ try {
+  const compact='bbbbbbbb-0000-4000-8000-000000000001'
+  await mutate('create',input,null,compact)
+  for(const code of ['DESIGN','DESIGN_DONE','PRINTING','PRESS','DONE']) {
+   const row=(await db.query('SELECT * FROM orders WHERE id=$1',[compact])).rows[0]
+   await mutate('move',{code},row.version,compact)
+  }
+  const entries=(await db.query('SELECT * FROM process_history WHERE order_id=$1',[compact])).rows
+  assert.equal(entries.length,6,'Initial anchor and one row per transition')
+  assert.equal(entries.filter(e=>e.event_kind==='entered').length,1)
+  assert.equal(entries.filter(e=>e.next_step_id).length,5)
+  const snapshot=(await db.query("SELECT printex_scoped_snapshot('2026-10-01','2026-10-01',NULL,$1) AS data",[compact])).rows[0].data
+  assert.equal(snapshot.process_history.filter(e=>e.next_step_id).length,5,'Compact fields survive RPC transport')
+  const row=(await db.query('SELECT * FROM orders WHERE id=$1',[compact])).rows[0]
+  await mutate('archive',{deliveryMethod:'received'},row.version,compact)
+  const archived=(await db.query('SELECT * FROM orders WHERE id=$1',[compact])).rows[0]
+  assert.equal(archived.delivery_method,'received')
+  assert.ok(archived.archive_finalized_at)
+  assert.equal(archived.archive_finalized_at.toISOString(),archived.archived_at.toISOString())
+  const receiptSnapshot=(await db.query("SELECT printex_scoped_snapshot('2026-10-01','2026-10-01',NULL,$1) AS data",[compact])).rows[0].data
+  const archiveStep=(await db.query("SELECT id FROM production_steps WHERE code='ARCHIVE'")).rows[0].id
+  assert.ok(receiptSnapshot.process_history.every(event=>event.step_id!==archiveStep),'Receipt is computed from orders rather than loading a seventh process')
+  assert.ok(receiptSnapshot.orders.find(order=>order.id===compact).archive_finalized_at)
+  await mutate('finish',{},null,compact)
+  assert.equal((await db.query('SELECT * FROM orders WHERE id=$1',[compact])).rows[0].archive_finalized_at.toISOString(),archived.archive_finalized_at.toISOString())
+ } finally {await db.exec('ROLLBACK')}
+})
+
 test('database migrations, RLS, transactional CRUD, versions and archive lifecycle',async()=>{
   await mutate('create',input)
   let row=await order()

@@ -1,4 +1,4 @@
-export type PhotoUrl = { url: string; expiresAt: number }
+type PhotoUrl = { url: string; expiresAt: number }
 
 // Memory-only: concurrent cards share one signing request and browser-cache URL.
 export function createPhotoUrlCache(sign: (path: string) => Promise<string>, now = Date.now) {

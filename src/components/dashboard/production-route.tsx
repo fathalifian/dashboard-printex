@@ -4,7 +4,7 @@ import { useRef, type KeyboardEvent } from 'react'
 import { ArrowLeft, ArrowRight, Handshake, Layers, PackageCheck, PackagePlus, PenTool, Printer, Wallet } from 'lucide-react'
 import type { ProcessStage } from '@/lib/process-metrics'
 
-export type ProductionRouteStop = {
+type ProductionRouteStop = {
   stage: ProcessStage
   name: string
   count: number
@@ -48,7 +48,7 @@ export default function ProductionRoute({ stops, selectedStage, onSelectStage }:
         <button type="button" onClick={() => scrollRoute(1)} aria-label="Geser ke tahap akhir"><ArrowRight size={16} /></button>
       </div>
     <p id="production-route-help" className="sr-only">Pilih titik untuk memfilter order. Pilih ulang titik aktif untuk menampilkan semua tahap. Gunakan panah kiri dan kanan untuk berpindah titik, lalu Enter atau spasi untuk memilih. Jalur dapat digeser pada layar kecil.</p>
-    <div ref={viewport} className="production-route-viewport" role="region" aria-label="Jalur tujuh tahap produksi" aria-describedby="production-route-help" tabIndex={0}>
+    <div ref={viewport} className="production-route-viewport" role="region" aria-label={`Jalur ${stops.length} tahap produksi`} aria-describedby="production-route-help" tabIndex={0}>
       <ol className="production-route-track">
         {stops.map((stop, index) => {
           const Icon = STATION_ICONS[stop.stage]

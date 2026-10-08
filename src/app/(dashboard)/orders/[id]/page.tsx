@@ -7,7 +7,7 @@ import { OrderTimer } from '@/components/production-timers'
 import OrderPhoto from '@/components/order-photo'
 import DeleteConfirmation from '@/components/delete-confirmation'
 import { AlertTriangle, CheckCircle2, Circle, Loader2, Pencil, Trash2 } from 'lucide-react'
-import { PROCESS_STAGES } from '@/lib/process-metrics'
+import { BOARD_STAGES } from '@/lib/process-metrics'
 import { deleteOrder, errorMessage, useAllOrders, useProcessHistory, BOARD_STAGE_META } from '@/lib/production-board'
 import { StatusBadge, CustomerTypeBadge } from '@/components/ui/badges'
 import { formatDate, formatDueDate, isOverdue } from '@/lib/utils'
@@ -123,12 +123,13 @@ function OrderDetail() {
           <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
             <h3 className="text-sm font-semibold text-slate-900 mb-4">Timeline Produksi</h3>
             <div className="space-y-0">
-              {PROCESS_STAGES.map((stage, idx) => {
+              {BOARD_STAGES.map((stage, idx) => {
                 const step = BOARD_STAGE_META[stage]
-                const completed = stage === 'archive' ? !!order.archive?.finalizedAt : history.some(event => event.stage === stage && event.kind === 'completed')
-                const skipped = idx < PROCESS_STAGES.indexOf(order.board_stage) && !history.some(event => event.stage === stage)
-                const state = completed ? 'completed' : order.board_stage === stage ? 'active' : skipped ? 'skipped' : 'pending'
-                const isLast = idx === PROCESS_STAGES.length - 1
+                const completed = stage === 'done' ? !!order.archive?.finalizedAt : history.some(event => event.stage === stage && event.kind === 'completed')
+                const currentStage = order.board_stage === 'archive' ? 'done' : order.board_stage
+                const skipped = idx < BOARD_STAGES.indexOf(currentStage) && !history.some(event => event.stage === stage)
+                const state = completed ? 'completed' : currentStage === stage ? 'active' : skipped ? 'skipped' : 'pending'
+                const isLast = idx === BOARD_STAGES.length - 1
                 return (
                   <div key={step.code} className="flex gap-4">
                     <div className="flex flex-col items-center">

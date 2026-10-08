@@ -1,6 +1,7 @@
 'use client'
 
 import { memo, useMemo } from 'react'
+import { useDailySummary, storedPaper } from '@/lib/report-summaries'
 import OutputTrend from '@/components/dashboard/output-trend'
 import { paperOutput, paperLabel, PAPER_WIDTHS } from '@/lib/paper-output'
 import type { BoardOrder } from '@/lib/production-board'
@@ -10,7 +11,8 @@ const number = new Intl.NumberFormat('id-ID', {maximumFractionDigits:2})
 const colors = { '0.6':'bg-violet-500', '1.2':'bg-sky-500', '1.6':'bg-emerald-500', '1.8':'bg-rose-500' }
 const strokes = { '0.6':'#8b5cf6', '1.2':'#0ea5e9', '1.6':'#10b981', '1.8':'#f43f5e' }
 function PaperOutput({orders,history,start,end,scope,trendOnly=false,sharedGrid=false}: {trendOnly?:boolean;sharedGrid?:boolean;orders:BoardOrder[];history:ProcessEvent[];start:string;end:string;scope:string}) {
-  const data=useMemo(()=>paperOutput(orders,history,start,end),[orders,history,start,end])
+  const saved=useDailySummary(start,end)
+  const data=useMemo(()=>saved.enabled?storedPaper(saved.rows,start,end):paperOutput(orders,history,start,end),[orders,history,start,end,saved.enabled,saved.rows])
   const total=PAPER_WIDTHS.reduce((sum,width)=>sum+data.totals[width].meter,0)
   const segments=PAPER_WIDTHS.map((width,index)=>({width,
     share:total?data.totals[width].meter/total*100:0,

@@ -1,4 +1,4 @@
-import { login } from './actions'
+import LoginForm from './login-form'
 import Image from 'next/image'
 
 
@@ -26,7 +26,7 @@ export default async function LoginPage({searchParams}:{searchParams:Promise<{er
           <h1 className="text-2xl font-semibold tracking-tight text-slate-900">Masuk ke Printex</h1>
         </div>
         {error && <p role="alert" className="text-sm text-red-600">{error === 'access' ? 'Akun belum aktif atau akses tidak tersedia. Hubungi Owner.' : 'Login gagal. Periksa email, password, dan koneksi lalu coba lagi.'}</p>}
-        <form className="space-y-6" action={login}>
+        <LoginForm>
           <div className="gap-5 flex flex-col">
             <div>
               <label htmlFor="email-address" className="mb-2 block text-sm font-medium text-slate-700">
@@ -58,15 +58,7 @@ export default async function LoginPage({searchParams}:{searchParams:Promise<{er
             </div>
           </div>
 
-          <div>
-            <button
-              type="submit"
-              className="group relative flex w-full justify-center rounded-xl bg-brand-600 px-3 py-2.5 text-sm font-semibold text-white hover:bg-brand-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-600 transition-colors"
-            >
-              Masuk
-            </button>
-          </div>
-        </form>
+        </LoginForm>
       </div></section>
     </main>
   )

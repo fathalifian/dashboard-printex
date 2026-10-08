@@ -9,6 +9,20 @@ new Function('exports', compiled)(metrics)
 const { transitionEvents, summarizeEvents, jakartaDate } = metrics
 const order = { id: '1', spk_code: 'SPK-1', customer: { name: 'Customer' } }
 
+test('six-stage completion reports exclude intake and finish Done on customer receipt',()=>{
+ const history=[...transitionEvents(order,'printing','done','2026-10-01T01:00:00Z'),
+  ...transitionEvents(order,'done','archive','2026-10-01T02:00:00Z')]
+ const pending={...order,board_stage:'archive',archive:{}}
+ const pendingEvents=metrics.completionReportEvents(history,[pending])
+ assert.ok(pendingEvents.every(e=>e.kind==='completed'&&e.stage!=='archive'))
+ assert.equal(pendingEvents.filter(e=>e.stage==='done').length,0)
+ const finalized={...pending,archive:{finalizedAt:'2026-10-02T03:00:00Z'}}
+ const received=metrics.completionReportEvents(history,[finalized])
+ assert.equal(received.filter(e=>e.stage==='done').length,1)
+ assert.equal(received.find(e=>e.stage==='done').occurredAt,finalized.archive.finalizedAt)
+ assert.equal(metrics.BOARD_STAGES.length,6)
+})
+
 test('a completion today is counted independently from yesterday intake in WIB', () => {
   const events = [...transitionEvents(order, 'incoming', 'design', '2026-09-06T16:00:00Z'), ...transitionEvents(order, 'design', 'design_done', '2026-09-06T18:00:00Z')]
   const daily = summarizeEvents(events, 'design', '2026-09-07', '2026-09-07')

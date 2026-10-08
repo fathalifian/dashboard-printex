@@ -1,6 +1,8 @@
 'use client'
 
 import Link from 'next/link'
+import ReportStatus from '@/components/report-status'
+import { useDailySummary, storedOutput, storedTrend, storedPaper, total } from '@/lib/report-summaries'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { ArrowUpRight, Building2, TriangleAlert } from 'lucide-react'
 import CentralCharts from '@/components/dashboard/central-charts'
@@ -9,11 +11,12 @@ import ProductivityReport from '@/components/productivity-report'
 import DateRangeFilter, { todayRange } from '@/components/date-range-filter'
 import { BOARD_STAGE_META, selectBranch, useAllOrders, useOnlineConnection, useProcessHistory, type BoardOrder } from '@/lib/production-board'
 import { paperOutput } from '@/lib/paper-output'
-import { centralDashboardSummary, longestPendingOrders, shiftDate } from '@/lib/central-dashboard'
-import { jakartaDate } from '@/lib/process-metrics'
+import { centralDashboardLiveSummary, centralDashboardSummary, longestPendingOrders, shiftDate } from '@/lib/central-dashboard'
+import { jakartaDate, type ProcessEvent } from '@/lib/process-metrics'
 
 const number = new Intl.NumberFormat('id-ID', {maximumFractionDigits:2})
-const shortDate = (value: string) => new Date(value+'T12:00:00Z').toLocaleDateString('id-ID',{day:'numeric',month:'short',timeZone:'UTC'})
+const dateFormatter = new Intl.DateTimeFormat('id-ID',{day:'numeric',month:'short',timeZone:'UTC'})
+const shortDate = (value: string) => dateFormatter.format(new Date(value+'T12:00:00Z'))
 const panel = 'rounded-2xl border border-slate-200 bg-white shadow-sm'
 function duration(ms: number) {
   const hours = Math.floor(ms/3600000)
@@ -28,7 +31,7 @@ export default function CentralDashboard() {
   const [notice,setNotice]=useState('')
   const [attention,setAttention]=useState<'late'|'today'|'longest'>('late')
   useEffect(()=>{
-    const timer=window.setInterval(()=>setNow(new Date()),30000)
+    const timer=window.setInterval(()=>{if(document.visibilityState === 'visible')setNow(new Date())},30000)
     return ()=>window.clearInterval(timer)
   },[])
   const today=jakartaDate(now)
@@ -37,17 +40,39 @@ export default function CentralDashboard() {
   const selectedBranch=status.branches?.find(branch=>branch.id===status.branchId)
   const scopeLabel=status.branchId ? `Cabang ${selectedBranch?.name ?? 'terpilih'}` : 'Semua cabang'
   const scopedOrders=useMemo(()=>status.branchId ? orders.filter(order=>order.branch_id===status.branchId) : orders,[orders,status.branchId])
-  const summary=useMemo(()=>centralDashboardSummary(orders,history,
-    (status.branches??[]).filter(branch=>!status.branchId || branch.id===status.branchId),start,end,today),
-    [orders,history,status.branches,status.branchId,start,end,today])
+  const saved=useDailySummary(start,end)
+  const rawSummary=useMemo(()=>{
+    const branches=(status.branches??[]).filter(branch=>!status.branchId||branch.id===status.branchId)
+    return saved.enabled?centralDashboardLiveSummary(orders,branches,start,end,today):centralDashboardSummary(orders,history,branches,start,end,today)
+  },[orders,history,status.branches,status.branchId,start,end,today,saved.enabled])
+  const summary=useMemo(()=>saved.enabled?{...rawSummary,output:storedOutput(saved.rows),trend:storedTrend(saved.rows,start,end),rows:rawSummary.rows.map(row=>({...row,output:storedOutput(saved.rows,row.id),completed:total(saved.rows,'intake_completed',undefined,row.id).count}))}:rawSummary,[rawSummary,saved.enabled,saved.rows,start,end])
   const longest=useMemo(()=>longestPendingOrders(summary.pendingOrders,history,now),[summary.pendingOrders,history,now])
   const data={...summary,longest}
-  const branchPaper=useMemo(()=>Object.fromEntries(summary.rows.map(branch=>[branch.id,paperOutput(orders.filter(order=>order.branch_id===branch.id),history,start,end).totals])),[summary.rows,orders,history,start,end])
+  const branchPaper=useMemo(()=>{
+    if(saved.enabled)return Object.fromEntries(summary.rows.map(branch=>[branch.id,storedPaper(saved.rows,start,end,branch.id).totals]))
+    const branchOrders = new Map<string, BoardOrder[]>()
+    const branchEvents = new Map<string, ProcessEvent[]>()
+    const orderBranches = new Map<string, string>()
+    for (const order of orders) {
+      if (!order.branch_id) continue
+      orderBranches.set(order.id, order.branch_id)
+      const rows = branchOrders.get(order.branch_id) ?? []
+      rows.push(order); branchOrders.set(order.branch_id, rows)
+    }
+    for (const event of history) {
+      const branch = orderBranches.get(event.orderId)
+      if (!branch) continue
+      const events = branchEvents.get(branch) ?? []
+      events.push(event); branchEvents.set(branch, events)
+    }
+    return Object.fromEntries(summary.rows.map(branch=>[branch.id,paperOutput(branchOrders.get(branch.id) ?? [],branchEvents.get(branch.id) ?? [],start,end).totals]))
+  },[summary.rows,orders,history,start,end,saved.enabled,saved.rows])
   const paperCharts=useMemo(()=><PaperOutput sharedGrid orders={scopedOrders} history={history} start={start} end={end} scope={scopeLabel} />,[scopedOrders,history,start,end,scopeLabel])
   const branchNames=new Map(status.branches?.map(branch=>[branch.id,branch.name]))
+  const alertCount = attention==='late' ? data.overdue.length : attention==='today' ? data.dueToday.length : data.longest.length
   const alerts: {order:BoardOrder;note:string}[] = attention==='late'
-    ? data.overdue.map(order=>({order,note:'Tenggat '+shortDate(order.due_at)}))
-    : attention==='today' ? data.dueToday.map(order=>({order,note:'Tenggat '+shortDate(order.due_at)}))
+    ? data.overdue.slice(0,5).map(order=>({order,note:'Tenggat '+shortDate(order.due_at)}))
+    : attention==='today' ? data.dueToday.slice(0,5).map(order=>({order,note:'Tenggat '+shortDate(order.due_at)}))
     : data.longest.map(({order,milliseconds})=>({order,note:duration(milliseconds)+' di tahap ini'}))
   const openBranch=useCallback(async (id:string | null) => {
     try { await selectBranch(id) } catch { setNotice('Cabang belum dapat dibuka. Coba kembali.') }
@@ -56,6 +81,7 @@ export default function CentralDashboard() {
     const weekday=new Date(today+'T12:00:00Z').getUTCDay()
     setRange({period:'custom',start:kind==='month'?today.slice(0,8)+'01':shiftDate(today,-((weekday+6)%7)),end:today})
   }
+  if(saved.enabled&&(saved.loading||saved.error))return <div className="space-y-5"><DateRangeFilter value={{...range,start,end}} onChange={setRange}/><ReportStatus report={saved}/></div>
   return <div className="min-w-0 space-y-5 pb-4">
     <header className="flex flex-wrap items-start justify-between gap-4">
       <div>
@@ -71,6 +97,7 @@ export default function CentralDashboard() {
         <button type="button" onClick={()=>preset('month')} className="rounded-lg border border-slate-200 px-3 py-2 text-xs font-medium text-slate-600 hover:bg-slate-50">Bulan ini</button>
       </div>
     </section>
+    <ReportStatus report={saved} />
     <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
       {([
         {label:'Output DTF',value:number.format(data.output.dtf.meter)+' meter',caption:data.output.dtf.count+' order selesai print',kind:'dtf'},
@@ -120,7 +147,7 @@ export default function CentralDashboard() {
           </Link>)}
           {!alerts.length&&<p className="p-8 text-center text-sm text-slate-500">{attention==='late'?'Tidak ada order terlambat.':attention==='today'?'Tidak ada order jatuh tempo.':'Belum ada data durasi.'}</p>}
         </div>
-        {alerts.length>5&&<p className="px-5 pb-4 text-xs text-slate-500">5 dari {alerts.length} order</p>}
+        {alertCount>5&&<p className="px-5 pb-4 text-xs text-slate-500">5 dari {alertCount} order</p>}
       </section>
 
     </div>

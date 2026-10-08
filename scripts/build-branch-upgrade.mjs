@@ -5,7 +5,8 @@ if (!['Salatiga', 'Semarang', '--existing'].includes(branch)) {
   throw new Error('Gunakan: npm run db:branch-upgrade -- Salatiga | Semarang | --existing. Pilih cabang pemilik data lama; --existing hanya untuk cabang yang sudah aktif.')
 }
 const names = readdirSync('supabase/branch-migrations').filter(name => name.endsWith('.sql')).sort()
-const files = ['supabase/migrations/0021_incremental_sync.sql', ...names.map(name => 'supabase/branch-migrations/' + name)]
+const reports = readdirSync('supabase/report-migrations').filter(name => name.endsWith('.sql')).sort()
+const files = ['supabase/migrations/0021_incremental_sync.sql', ...names.map(name => 'supabase/branch-migrations/' + name), 'supabase/migrations/0025_scoped_snapshot.sql', 'supabase/migrations/0026_cached_branch_reads.sql', 'supabase/migrations/0027_compact_transitions.sql', 'supabase/migrations/0028_skip_archive_process_reads.sql', 'supabase/migrations/0029_manual_spk_on_create.sql', 'supabase/migrations/0030_history_without_actors.sql', ...reports.map(name => 'supabase/report-migrations/' + name)]
 const body = files.map(file => '-- ' + file + '\n' + readFileSync(file, 'utf8').replace(/\r\n/g, '\n').replace(/^BEGIN;\s*$/gm, '').replace(/^COMMIT;\s*$/gm, '')).join('\n')
 const preflight = branch === '--existing'
   ? `DO $$ BEGIN IF to_regclass('public.branches') IS NULL THEN RAISE EXCEPTION 'Database belum memiliki cabang. Pilih cabang pemilik data lama.'; END IF; END $$;`

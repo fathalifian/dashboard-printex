@@ -3,17 +3,17 @@
 import { useEffect, useMemo, useRef, useState, type DragEvent } from 'react'
 import Link from 'next/link'
 import { OrderTimer } from '@/components/production-timers'
-import { AlertTriangle, Archive, ChevronLeft, Pencil, PlusCircle, Save, Trash2, X, ZoomIn, ZoomOut, Scan } from 'lucide-react'
+import { AlertTriangle, Archive, ChevronLeft, Eye, Pencil, PlusCircle, Trash2, X, ZoomIn, ZoomOut, Scan } from 'lucide-react'
 import StockShortcuts from '@/components/stock-shortcuts'
 import BranchBoardList from '@/components/dashboard/branch-board-list'
 import { selectBranch } from '@/lib/production-board'
 import { formatDueDate, isOverdue, cn } from '@/lib/utils'
 import { canDragStage, canManageOrders, canMoveBetweenStages, normalizeRole } from '@/lib/access-control'
-import { archiveOrder, finishArchivedOrder, deleteOrder, moveOrderToStage, saveOrderPhoto, errorMessage, useProductionOrders, useOnlineConnection, canMoveOrder, type BoardStageId, type DeliveryMethod } from '@/lib/production-board'
+import { archiveOrder, deleteOrder, moveOrderToStage, saveOrderPhoto, errorMessage, useProductionOrders, useOnlineConnection, canMoveOrder, type BoardStageId, type DeliveryMethod } from '@/lib/production-board'
 import { droppedOrderPhoto, isFileDrop } from '@/lib/order-photo-drop'
 
 type StageId = BoardStageId
-type BoardOrder = { id: string; spkCode: string; customer: string; productionType: string; meter: number; customerType: string; dueAt: string; stage: StageId; deliveryMethod?: DeliveryMethod }
+type BoardOrder = { id: string; spkCode: string; customer: string; productionType: string; meter: number; customerType: string; dueAt: string; stage: StageId; archived?: boolean; deliveryMethod?: DeliveryMethod }
 
 const STAGES: Array<{ id: StageId; label: string }> = [
   { id: 'incoming', label: 'Order Masuk' },
@@ -22,7 +22,6 @@ const STAGES: Array<{ id: StageId; label: string }> = [
   { id: 'printing', label: 'Proses Sublim' },
   { id: 'press', label: 'Proses Press' },
   { id: 'done', label: 'Order Selesai' },
-  { id: 'archive', label: 'Order Diterima Customer' },
 ]
 
 export default function ProductionBoardPage() {
@@ -59,7 +58,7 @@ function ProductionBoard() {
   const boardViewport = useRef<HTMLDivElement>(null)
   const [viewportWidth, setViewportWidth] = useState(0)
   const [manualZoom, setManualZoom] = useState<number | null>(1)
-  const fitZoom = viewportWidth ? (viewportWidth < 640 ? 1 : Math.min(1, viewportWidth / 1610)) : 1
+  const fitZoom = viewportWidth ? (viewportWidth < 640 ? 1 : Math.min(1, viewportWidth / 1380)) : 1
   const zoom = manualZoom ?? fitZoom
   const zoomPercent = Math.round(zoom * 100)
   const adjustZoom = (percent: number) => setManualZoom(Math.min(150, Math.max(10, percent)) / 100)
@@ -92,13 +91,11 @@ function ProductionBoard() {
   }, [])
   const [pendingDelete, setPendingDelete] = useState<BoardOrder | null>(null)
   const [pendingArchive, setPendingArchive] = useState<BoardOrder | null>(null)
-  const [deliveryMethod, setDeliveryMethod] = useState<DeliveryMethod>('pickup')
   const [archiveError, setArchiveError] = useState('')
   const [notice, setNotice] = useState('')
-  const [pendingFinish, setPendingFinish] = useState<BoardOrder | null>(null)
-  const [finishError, setFinishError] = useState('')
-  const [finishing, setFinishing] = useState(false)
-  const orders: BoardOrder[] = useMemo(() => sharedOrders.map((order) => ({ id: order.id, spkCode: order.spk_code, customer: order.customer.name, productionType: order.production_type, meter: order.meter, customerType: order.customer_type, dueAt: order.due_at, stage: order.board_stage, deliveryMethod: order.archive?.deliveryMethod })), [sharedOrders])
+  const [stagePages, setStagePages] = useState<Partial<Record<StageId, number>>>({})
+  const pageSize = 30
+  const orders: BoardOrder[] = useMemo(() => sharedOrders.map((order) => ({ id: order.id, spkCode: order.spk_code, customer: order.customer.name, productionType: order.production_type, meter: order.meter, customerType: order.customer_type, dueAt: order.due_at, stage: order.board_stage === 'archive' ? 'done' : order.board_stage, archived: order.board_stage === 'archive' || !!order.archive, deliveryMethod: order.archive?.deliveryMethod })), [sharedOrders])
 
   const ordersByStage = useMemo(() => Object.fromEntries(STAGES.map((stage) => [stage.id, orders.filter((order) => order.stage === stage.id)])) as Record<StageId, BoardOrder[]>, [orders])
 
@@ -108,7 +105,7 @@ function ProductionBoard() {
     if (!canMoveBetweenStages(role, sourceOrder.stage, stage)) { setNotice('Perpindahan ini tidak tersedia untuk role Anda.'); return }
     if (stage === 'archive') {
       const order = orders.find(item => item.id === orderId)
-      if (order?.stage === 'done') { setPendingArchive(order); setDeliveryMethod('pickup'); setArchiveError('') }
+      if (order?.stage === 'done') { setPendingArchive(order); setArchiveError('') }
       else setNotice('Pindahkan order ke Order Selesai terlebih dahulu sebelum mengonfirmasi penyerahan barang.')
       return
     }
@@ -117,7 +114,7 @@ function ProductionBoard() {
   }
 
   function allowedDrop(order: BoardOrder | undefined, stage: StageId) {
-    return !!order && canMoveBetweenStages(role, order.stage, stage) && (stage === 'archive' ? manageOrders && order.stage === 'done' : canMoveOrder(order.stage, stage, order.productionType))
+    return !!order && !order.archived && canMoveBetweenStages(role, order.stage, stage) && canMoveOrder(order.stage, stage, order.productionType)
   }
 
   function handleDrop(event: DragEvent<HTMLDivElement>, stage: StageId) {
@@ -134,7 +131,7 @@ function ProductionBoard() {
   }
 
   function canUploadPhoto(order: BoardOrder) {
-    return manageOrders && order.stage !== 'archive' && connectionState === 'ready' && !busy && !photoUploading.current
+    return manageOrders && !order.archived && order.stage !== 'archive' && connectionState === 'ready' && !busy && !photoUploading.current
   }
 
   async function dropPhoto(event: DragEvent<HTMLElement>, order: BoardOrder) {
@@ -178,9 +175,12 @@ function ProductionBoard() {
       </div>
       {notice && <p role="status" className="rounded-xl border border-brand-200 bg-brand-50 px-4 py-3 text-sm text-brand-700">{notice}</p>}
       <div ref={boardViewport} data-board-viewport tabIndex={0} aria-label="Board produksi, geser untuk melihat seluruh tahap" className="min-w-0 overflow-x-auto pb-3">
-        <div data-board-canvas className="grid grid-cols-7 gap-3" style={{ zoom, width: Math.max(1610, viewportWidth / zoom), visibility: viewportWidth ? 'visible' : 'hidden' }}>
+        <div data-board-canvas className="grid grid-cols-6 gap-3" style={{ zoom, width: Math.max(1380, viewportWidth / zoom), visibility: viewportWidth ? 'visible' : 'hidden' }}>
           {STAGES.map((stage) => {
             const stageOrders = ordersByStage[stage.id]
+            const totalPages = Math.max(1, Math.ceil(stageOrders.length / pageSize))
+            const page = Math.min(stagePages[stage.id] ?? 1, totalPages)
+            const visibleOrders = stageOrders.slice((page - 1) * pageSize, page * pageSize)
             const isTarget = dragOverStage === stage.id
             const movable = canDragStage(role, stage.id)
             return (
@@ -198,14 +198,14 @@ function ProductionBoard() {
                   onDrop={(event) => handleDrop(event, stage.id)}
                   className="flex flex-1 flex-col gap-3 p-3"
                 >
-                  {stageOrders.map((order) => {
+                  {visibleOrders.map((order) => {
                     const completed = stage.id === 'done' || stage.id === 'archive'
                     const overdue = isOverdue(order.dueAt, completed ? 'completed' : 'active')
                     return (
                       <article
                         key={order.id}
                         title={manageOrders && stage.id !== 'archive' ? `Seret foto ke kartu ${order.spkCode} untuk menambah atau mengganti foto order` : undefined}
-                        draggable={movable}
+                        draggable={movable && !order.archived}
                         onDragOver={event => {
                           if (!isFileDrop(event.dataTransfer)) return
                           event.preventDefault(); event.stopPropagation()
@@ -220,32 +220,37 @@ function ProductionBoard() {
                         className={cn('group relative select-none rounded-2xl border p-3.5 shadow-sm transition-shadow hover:shadow-md', movable ? 'cursor-grab active:cursor-grabbing' : 'cursor-default', 'board-card', overdue && 'board-card-overdue', draggedId === order.id && 'scale-95 ring-2 ring-brand-500', photoDropTarget === order.id && 'ring-2 ring-brand-500 ring-offset-2')}
                       >
                         {photoDropTarget === order.id && <div className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center rounded-lg bg-white/90 p-3 text-center text-xs font-semibold text-brand-700">Lepaskan untuk menyimpan foto</div>}
-                        <div className="flex items-start justify-between gap-2 pr-10">
-                          <div className="flex min-w-0 items-center gap-1.5">
-                            {manageOrders ? <Link draggable={false} href={`/orders/${order.id}?from=schedule`} className="whitespace-nowrap font-mono text-xs font-bold text-brand-700 hover:underline">{order.spkCode}</Link> : <span className="whitespace-nowrap font-mono text-xs font-bold text-slate-900">{order.spkCode}</span>}
-                            {order.customerType === 'priority' && <span className="rounded border border-slate-200 px-1.5 py-0.5 text-[10px] font-medium text-slate-600">Prioritas</span>}
+                        <div className="flex items-start gap-3">
+                          <div className="min-w-0 flex-1">
+                            <span data-priority={order.customerType === 'priority'} title={order.customerType === 'priority' ? `${order.spkCode} · Customer prioritas` : order.spkCode} className="board-spk block break-all font-mono text-xs font-bold">{order.spkCode}</span>
+                            <p title={order.customer} className="mt-2 break-words text-sm font-bold leading-5 text-slate-900">{order.customer}</p>
+                            <div className="mt-2 flex min-h-5 flex-wrap items-center gap-1.5 text-xs text-slate-400">
+                              <span data-production-type={order.productionType.trim().toLowerCase()} className="board-card-tag rounded-md px-1.5 py-0.5 font-medium">{order.productionType}</span><span>{order.meter} m</span>
+                            </div>
+                            <p className={cn('mt-2 text-[11px] font-medium', overdue ? 'board-due-overdue' : 'text-slate-500')}>Tenggat: {formatDueDate(order.dueAt, completed ? 'completed' : 'active')}</p>
                           </div>
-                          {manageOrders && stage.id !== 'archive' && <div className="absolute right-3.5 top-3.5 flex flex-col items-center gap-1.5">
-                            <Link href={`/orders/${order.id}/edit`} draggable={false} onPointerDown={(event) => event.stopPropagation()} aria-label={`Edit ${order.spkCode}`} title="Edit order" className="board-edit-button"><Pencil className="h-3.5 w-3.5" /></Link>
-                            <button type="button" draggable={false} onPointerDown={(event) => event.stopPropagation()} onClick={() => setPendingDelete(order)} aria-label={`Hapus ${order.spkCode}`} title="Hapus order" className="board-edit-button"><Trash2 className="h-3.5 w-3.5 text-red-600" /></button>
-                            {stage.id === 'done' && <button type="button" draggable={false} onPointerDown={event => event.stopPropagation()} onClick={() => { setPendingArchive(order); setDeliveryMethod('pickup'); setArchiveError('') }} aria-label={`Konfirmasi diterima ${order.spkCode}`} title="Konfirmasi diterima" className="board-edit-button"><Archive className="h-3.5 w-3.5 text-emerald-600" /></button>}
+                          {manageOrders && stage.id !== 'archive' && <div className="flex shrink-0 flex-col items-center gap-1.5">
+                            <Link href={`/orders/${order.id}?from=schedule`} draggable={false} onPointerDown={event => event.stopPropagation()} aria-label={`Lihat detail ${order.spkCode}`} title="Lihat detail order" className="board-edit-button"><Eye className="h-3.5 w-3.5" /></Link>
+                            {!order.archived && <Link href={`/orders/${order.id}/edit`} draggable={false} onPointerDown={(event) => event.stopPropagation()} aria-label={`Edit ${order.spkCode}`} title="Edit order" className="board-edit-button"><Pencil className="h-3.5 w-3.5" /></Link>}
+                            {!order.archived && <button type="button" draggable={false} onPointerDown={(event) => event.stopPropagation()} onClick={() => setPendingDelete(order)} aria-label={`Hapus ${order.spkCode}`} title="Hapus order" className="board-edit-button"><Trash2 className="h-3.5 w-3.5 text-red-600" /></button>}
+                            {stage.id === 'done' && <button type="button" draggable={false} onPointerDown={event => event.stopPropagation()} onClick={() => { setPendingArchive(order); setArchiveError('') }} aria-label={`Konfirmasi diterima ${order.spkCode}`} title="Masukkan ke arsip" className="board-edit-button"><Archive className="h-3.5 w-3.5 text-emerald-600" /></button>}
                           </div>}
-                          {manageOrders && stage.id === 'archive' && <button type="button" draggable={false} onPointerDown={event => event.stopPropagation()} onClick={() => { setPendingFinish(order); setFinishError('') }} aria-label={`Simpan ${order.spkCode} ke laporan arsip`} title="Simpan ke laporan arsip" className="board-edit-button absolute right-3.5 top-3.5"><Save className="h-3.5 w-3.5 text-brand-600" /></button>}
 
                         </div>
-                        <p title={order.customer} className="mt-2 break-words pr-10 text-sm font-bold leading-5 text-slate-900">{order.customer}</p>
-                        <div className="mt-2 flex min-h-5 flex-wrap items-center gap-1.5 pr-10 text-xs text-slate-400">
-                          <span data-production-type={order.productionType.trim().toLowerCase()} className="board-card-tag rounded-md px-1.5 py-0.5 font-medium">{order.productionType}</span><span>{order.meter} m</span>
-                        </div>
-                        <p className={cn('mt-2 pr-10 text-[11px] font-medium', overdue ? 'board-due-overdue' : 'text-slate-500')}>Tenggat: {formatDueDate(order.dueAt, completed ? 'completed' : 'active')}</p>
-                        <OrderTimer id={order.id} hideTotal={stage.id !== 'archive'} />
-
-                        {stage.id === 'archive' && <><p className="mt-3 text-xs font-medium text-emerald-600">{order.deliveryMethod === 'pickup' ? 'Sudah diambil pembeli' : order.deliveryMethod === 'delivery' ? 'Sudah dikirim / diterima' : 'Penyerahan tercatat'}</p></>}
+                        <OrderTimer id={order.id} hideTotal={stage.id !== 'done'} />
                       </article>
                     )
                   })}
                   {stageOrders.length === 0 && <div className={cn('board-empty flex flex-1 items-center justify-center rounded-xl border-2 border-dashed text-center transition-colors', isTarget ? 'border-brand-300 bg-brand-50' : 'border-slate-200/80 bg-white/25')}><p className="px-3 text-xs text-slate-400">{manageOrders || movable ? 'Seret order ke sini' : 'Belum ada order'}</p></div>}
                 </div>
+                {totalPages > 1 && <nav aria-label={`Halaman ${stage.label}`} className="mt-auto space-y-2 border-t border-slate-200 bg-white/70 p-3 text-xs text-slate-600">
+                  <p>{(page - 1) * pageSize + 1}–{Math.min(page * pageSize, stageOrders.length)} dari {stageOrders.length} order</p>
+                  <div className="flex items-center justify-between gap-2">
+                    <button type="button" disabled={page === 1} onClick={() => setStagePages(pages => ({...pages, [stage.id]: page - 1}))} className="rounded border px-2 py-1 disabled:opacity-40">Sebelumnya</button>
+                    <span>{page}/{totalPages}</span>
+                    <button type="button" disabled={page === totalPages} onClick={() => setStagePages(pages => ({...pages, [stage.id]: page + 1}))} className="rounded border px-2 py-1 disabled:opacity-40">Berikutnya</button>
+                  </div>
+                </nav>}
               </section>
             )
           })}
@@ -256,32 +261,10 @@ function ProductionBoard() {
         <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl">
           <h3 id="archive-order-title" className="text-lg font-bold text-slate-900">Konfirmasi penerimaan order</h3>
           <p className="mt-2 text-sm text-slate-600">{pendingArchive.spkCode} · {pendingArchive.customer}</p>
-          <label className="mt-5 block text-sm font-medium text-slate-700">Penyerahan barang<select autoFocus value={deliveryMethod} onChange={event => setDeliveryMethod(event.target.value as DeliveryMethod)} className="mt-2 w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5"><option value="pickup">Diambil pembeli</option><option value="delivery">Sudah dikirim</option></select></label>
+          <p className="mt-5 font-medium text-emerald-700">Order diterima customer</p>
           <p className="mt-3 text-xs leading-5 text-slate-500">Konfirmasi barang telah diterima pelanggan.</p>
           {archiveError && <p role="alert" className="mt-3 text-sm text-red-600">{archiveError}</p>}
-          <div className="mt-6 flex justify-end gap-3"><button type="button" onClick={() => setPendingArchive(null)} className="rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-600">Batal</button><button type="button" onClick={async () => { try { if (await archiveOrder(pendingArchive.id, deliveryMethod)) setPendingArchive(null); else setArchiveError('Order harus berada di Order Selesai dan belum diarsipkan. Periksa kembali board.'); } catch { setArchiveError('Arsip belum tersimpan. Periksa koneksi database lalu coba lagi.') } }} className="rounded-xl bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white">Konfirmasi Diterima</button></div>
-        </div>
-      </div>}
-
-      {pendingFinish && <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 p-4 backdrop-blur-sm" role="dialog" aria-modal="true" aria-labelledby="finish-order-title" onKeyDown={event => { if(event.key === 'Escape' && !finishing) setPendingFinish(null) }}>
-        <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl">
-          <h3 id="finish-order-title" className="text-lg font-bold text-slate-900">Simpan ke laporan arsip?</h3>
-          <p className="mt-2 text-sm text-slate-600">{pendingFinish.spkCode} - {pendingFinish.customer}</p>
-          <p className="mt-3 text-sm text-slate-500">Simpan ke arsip hari ini dan keluarkan dari board. Foto dihapus permanen; data order dan riwayat tetap tersimpan.</p>
-          {finishError && <p role="alert" className="mt-3 text-sm text-red-600">{finishError}</p>}
-          <div className="mt-6 flex justify-end gap-3">
-            <button autoFocus type="button" disabled={finishing} onClick={() => setPendingFinish(null)} className="rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-600">Batal</button>
-            <button type="button" disabled={finishing} onClick={async () => {
-              if(finishing)return
-              setFinishing(true); setFinishError('')
-              try {
-                await finishArchivedOrder(pendingFinish.id)
-                setNotice(pendingFinish.spkCode + ' tersimpan di Laporan Arsip.')
-                setPendingFinish(null)
-              } catch {setFinishError('Laporan belum tersimpan. Periksa koneksi dan coba lagi.')}
-              finally {setFinishing(false)}
-            }} className="rounded-xl bg-brand-600 px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-50">{finishing?'Menyimpan...':'Lanjut'}</button>
-          </div>
+          <div className="mt-6 flex justify-end gap-3"><button type="button" onClick={() => setPendingArchive(null)} className="rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-600">Batal</button><button type="button" disabled={busy} onClick={async () => { try { if (await archiveOrder(pendingArchive.id)) setPendingArchive(null); else setArchiveError('Order harus berada di Order Selesai dan belum diarsipkan. Periksa kembali board.'); } catch { setArchiveError('Arsip belum tersimpan. Periksa koneksi database lalu coba lagi.') } }} className="rounded-xl bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white">Masukkan ke arsip</button></div>
         </div>
       </div>}
 

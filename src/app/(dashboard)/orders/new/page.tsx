@@ -20,6 +20,7 @@ export default function NewOrderPage() {
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
   const [form, setForm] = useState({
+    spkCode: '',
     customer: '',
     productionType: '',
     meter: '',
@@ -41,9 +42,11 @@ export default function NewOrderPage() {
     setSaving(true); setError('')
     requestId.current ??= crypto.randomUUID()
     try {
+      if (!form.spkCode.trim()) throw new Error('Kode SPK wajib diisi.')
       const compressed = photo ? await compressOrderPhoto(photo) : null
       if (!created.current) {
       await addOrder({
+      spkCode: form.spkCode.trim(),
       customerName: form.customer.trim(),
       productionType: form.productionType,
       meter: Number(form.meter),
@@ -77,8 +80,12 @@ export default function NewOrderPage() {
         <fieldset disabled={saving || orderSaved} className="min-w-0 space-y-2">
         {/* Customer Section */}
         <div className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm space-y-2">
-          <h3 className="text-sm font-semibold text-slate-900 border-b border-slate-100 pb-1">Data Customer</h3>
+          <h3 className="text-sm font-semibold text-slate-900 border-b border-slate-100 pb-1">Data Order dan Customer</h3>
           <div className="grid grid-cols-1 gap-3">
+            <div>
+              <label htmlFor="spkCode" className="mb-1 block text-sm font-medium text-slate-700">Kode SPK <span className="text-red-500">*</span></label>
+              <input type="text" id="spkCode" name="spkCode" value={form.spkCode} onChange={handleChange} required placeholder="Masukkan kode SPK" className="block w-full rounded-xl border border-slate-200 px-3 py-1.5 text-sm text-slate-900 placeholder:text-slate-400 focus:border-brand-500 focus:outline-none focus:ring-1 focus:ring-brand-500" />
+            </div>
             <div>
               <label htmlFor="customer" className="block text-sm font-medium text-slate-700 mb-1">
                 Nama Customer <span className="text-red-500">*</span>

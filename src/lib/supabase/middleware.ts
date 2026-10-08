@@ -39,6 +39,9 @@ export async function updateSession(request: NextRequest) {
   } = await supabase.auth.getUser()
 
   const pathname = request.nextUrl.pathname
+  // API handlers return their own JSON authentication/authorization responses.
+  // Page ACLs must not redirect Operator summary requests to dashboard HTML.
+  if (pathname.startsWith('/api/')) return supabaseResponse
   const publicPage = pathname === '/login' || pathname === '/auth' || pathname.startsWith('/auth/')
   function redirectTo(path: string, error?: string) {
     const url = request.nextUrl.clone()

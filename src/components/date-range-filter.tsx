@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { CalendarDays } from 'lucide-react'
 import { jakartaDate } from '@/lib/process-metrics'
+import { useDataRange, useOnlineConnection } from '@/lib/production-board'
 
 export type DateRange = { period: 'today'|'custom'; start:string; end:string }
 export function todayRange():DateRange {
@@ -11,6 +12,9 @@ export function todayRange():DateRange {
 }
 function label(day:string){return new Date(`${day}T12:00:00Z`).toLocaleDateString('id-ID',{day:'numeric',month:'short',year:'numeric',timeZone:'UTC'})}
 export default function DateRangeFilter({value,onChange}:{value:DateRange;onChange:(range:DateRange)=>void}) {
+  const status=useOnlineConnection()
+  const today=jakartaDate(new Date())
+  useDataRange(status.reportSummariesEnabled?today:value.start,status.reportSummariesEnabled?today:value.end)
   const [open,setOpen]=useState(false)
   const [month,setMonth]=useState(value.start.slice(0,7))
   const [first,setFirst]=useState<string|null>(null)
@@ -18,6 +22,16 @@ export default function DateRangeFilter({value,onChange}:{value:DateRange;onChan
   const [error,setError]=useState('')
   const wrapper=useRef<HTMLDivElement>(null)
   const trigger=useRef<HTMLButtonElement>(null)
+  useEffect(()=>{
+    if(value.period!=='today')return
+    const tick=()=>{
+      const day=jakartaDate(new Date())
+      if(value.start!==day||value.end!==day)onChange({period:'today',start:day,end:day})
+    }
+    tick()
+    const timer=window.setInterval(tick,30000)
+    return()=>window.clearInterval(timer)
+  },[value.period,value.start,value.end,onChange])
   useEffect(()=>{
     if(!open)return
     const outside=(event:PointerEvent)=>{if(!wrapper.current?.contains(event.target as Node)){setOpen(false);setFirst(null)}}

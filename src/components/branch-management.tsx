@@ -4,8 +4,8 @@ import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { listBranches, saveBranch } from '@/app/(dashboard)/settings/branch-actions'
 import { refreshOnlineData } from '@/lib/production-board'
 
-export type ManagedBranch = { id: string; name: string; deleting?: boolean }
-export type BranchChange = { action: 'create' | 'rename' | 'delete'; id?: string; name: string }
+type ManagedBranch = { id: string; name: string; deleting?: boolean }
+type BranchChange = { action: 'create' | 'rename' | 'delete'; id?: string; name: string }
 
 function BranchDialog({ change, onClose, onSave }: {
   change: BranchChange
@@ -50,7 +50,7 @@ function BranchDialog({ change, onClose, onSave }: {
   </dialog>
 }
 
-export function BranchManagement({ branches, onSave }: {
+function BranchManagement({ branches, onSave }: {
   branches: ManagedBranch[]
   onSave: (change: BranchChange) => Promise<{ error: string }>
 }) {

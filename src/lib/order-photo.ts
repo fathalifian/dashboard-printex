@@ -1,7 +1,7 @@
 export const ORDER_PHOTO_BUCKET = 'order-photos'
 export const MAX_ORDER_PHOTO_SIZE = 5 * 1024 * 1024
-export const ORDER_PHOTO_MAX_EDGE = 1600
-export const ORDER_PHOTO_TARGET_SIZE = 400 * 1024
+const ORDER_PHOTO_MAX_EDGE = 1600
+const ORDER_PHOTO_TARGET_SIZE = 400 * 1024
 const compressedPhotos = new WeakSet<File>()
 const EXTENSIONS: Record<string, string> = { 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp' }
 
@@ -13,7 +13,7 @@ export function orderPhotoExtension(file: { type: string; size: number }) {
   return extension
 }
 
-export function photoDimensions(width: number, height: number) {
+function photoDimensions(width: number, height: number) {
   if (!(width > 0 && height > 0) || !Number.isFinite(width + height)) throw new Error('Dimensi foto tidak valid.')
   const scale = Math.min(1, ORDER_PHOTO_MAX_EDGE / Math.max(width, height))
   return { width: Math.max(1, Math.round(width * scale)), height: Math.max(1, Math.round(height * scale)) }

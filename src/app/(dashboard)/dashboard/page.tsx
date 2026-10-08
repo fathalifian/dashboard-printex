@@ -10,13 +10,18 @@ import { StatusBadge } from '@/components/ui/badges'
 import { BOARD_STAGE_META, useProductionOrders, useOnlineConnection } from '@/lib/production-board'
 import { formatDueDate, isOverdue } from '@/lib/utils'
 import { canManageOrders } from '@/lib/access-control'
-import { PROCESS_STAGES, type ProcessStage } from '@/lib/process-metrics'
+import { BOARD_STAGES, type ProcessStage } from '@/lib/process-metrics'
 
 const CentralDashboard = dynamic(() => import('@/components/dashboard/central-dashboard'))
 
 type DashboardOrder = ReturnType<typeof useProductionOrders>[number]
 
 function OrderTable({ title, headerAction, orders, emptyMessage, canViewDetails }: { canViewDetails: boolean; title: string; headerAction?: React.ReactNode; orders: DashboardOrder[]; emptyMessage: string }) {
+  const [page, setPage] = useState(1)
+  const pageSize = 50
+  const totalPages = Math.max(1, Math.ceil(orders.length / pageSize))
+  const currentPage = Math.min(page, totalPages)
+  const visibleOrders = orders.slice((currentPage - 1) * pageSize, currentPage * pageSize)
   return (
     <section className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 px-5 py-3.5">
@@ -40,7 +45,7 @@ function OrderTable({ title, headerAction, orders, emptyMessage, canViewDetails 
             {canViewDetails && <th className="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wider text-slate-500">Aksi</th>}
           </tr></thead>
           <tbody className="divide-y divide-slate-100">
-            {orders.length === 0 ? <tr><td colSpan={canViewDetails ? 5 : 4} className="px-4 py-10 text-center text-sm text-slate-400">{emptyMessage}</td></tr> : orders.map((order) => {
+            {orders.length === 0 ? <tr><td colSpan={canViewDetails ? 5 : 4} className="px-4 py-10 text-center text-sm text-slate-400">{emptyMessage}</td></tr> : visibleOrders.map((order) => {
               const overdue = isOverdue(order.due_at, order.order_state)
               return (
                 <tr key={order.id} className={overdue ? 'bg-red-50/30 transition-colors hover:bg-red-50/60' : 'transition-colors hover:bg-slate-50'}>
@@ -55,6 +60,14 @@ function OrderTable({ title, headerAction, orders, emptyMessage, canViewDetails 
           </tbody>
         </table>
       </div>
+      {totalPages > 1 && <nav aria-label="Halaman order dashboard" className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 px-5 py-3 text-xs text-slate-600">
+        <span>{(currentPage - 1) * pageSize + 1}–{Math.min(currentPage * pageSize, orders.length)} dari {orders.length} order</span>
+        <div className="flex items-center gap-3">
+          <button type="button" disabled={currentPage === 1} onClick={() => setPage(currentPage - 1)} className="rounded border px-3 py-2 disabled:opacity-40">Sebelumnya</button>
+          <span>{currentPage}/{totalPages}</span>
+          <button type="button" disabled={currentPage === totalPages} onClick={() => setPage(currentPage + 1)} className="rounded border px-3 py-2 disabled:opacity-40">Berikutnya</button>
+        </div>
+      </nav>}
     </section>
   )
 }
@@ -67,12 +80,12 @@ export default function DashboardPage() {
   const canViewDetails = canManageOrders(connection.profile?.role)
   const query = search.trim().toLowerCase()
   const visibleOrders = useMemo(() => orders.filter(order =>
-    (stage === 'all' || order.board_stage === stage) &&
+    (stage === 'all' || (order.board_stage==='archive'?'done':order.board_stage) === stage) &&
     (!query || order.spk_code.toLowerCase().includes(query) || order.customer.name.toLowerCase().includes(query))
   ), [orders, query, stage])
   const filterDropdown = <select aria-label="Filter tahap order" value={stage} onChange={event => setStage(event.target.value as ProcessStage | 'all')} className="max-w-[220px] rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-xs font-medium text-slate-700 focus:outline-2 focus:outline-brand-600">
     <option value="all">Semua tahap</option>
-    {PROCESS_STAGES.map(id => <option key={id} value={id}>{BOARD_STAGE_META[id].name}</option>)}
+    {BOARD_STAGES.map(id => <option key={id} value={id}>{BOARD_STAGE_META[id].name}</option>)}
   </select>
 
   if (connection.profile?.role === 'central_owner' && connection.central) return <CentralDashboard />
@@ -85,7 +98,7 @@ export default function DashboardPage() {
       <ProductionFlow selectedStage={stage} onSelectStage={setStage} />
       <div className="relative"><Search className="pointer-events-none absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-slate-400" /><input suppressHydrationWarning type="search" aria-label="Cari SPK atau nama customer" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Cari SPK / Nama Customer..." className="block w-full rounded-xl border border-slate-200 bg-white py-3 pl-11 pr-4 text-sm text-slate-900 placeholder:text-slate-400 focus:border-brand-500 focus:outline-none focus:ring-1 focus:ring-brand-500" /></div>
       <div id="dashboard-orders" className="scroll-mt-20">
-        <OrderTable canViewDetails={canViewDetails} title="Order di Board" headerAction={filterDropdown} orders={visibleOrders} emptyMessage={search ? 'Order tidak ditemukan.' : 'Tidak ada order di tahap ini.'} />
+        <OrderTable key={`${stage}:${query}`} canViewDetails={canViewDetails} title="Order di Board" headerAction={filterDropdown} orders={visibleOrders} emptyMessage={search ? 'Order tidak ditemukan.' : 'Tidak ada order di tahap ini.'} />
       </div>
     </div>
   )
