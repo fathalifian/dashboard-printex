@@ -1,20 +1,16 @@
--- LANGKAH 3 — PULIHKAN AKUN & PENGATURAN SALATIGA (setelah langkah 2: supabase/SETUP.sql)
--- Mengembalikan profil akun (nama, role, status aktif), waktu kerja, operator standar,
--- daftar mesin, link stok dan nomor Customer Service yang disimpan di langkah 1,
--- lalu menghapus skema cadangan printex_keep. Satu blok: semua berhasil, atau tidak ada yang berubah.
-
+-- ===== Bagian 3: pulihkan akun & pengaturan, lalu hapus cadangan =====
 DO $$
 DECLARE s record;
 BEGIN
- IF to_regclass('printex_keep.profiles') IS NULL THEN RAISE EXCEPTION 'Cadangan langkah 1 tidak ditemukan.'; END IF;
- IF to_regclass('public.production_settings') IS NULL THEN RAISE EXCEPTION 'Jalankan langkah 2 (supabase/SETUP.sql) terlebih dahulu.'; END IF;
-
  -- Akun: login dan password tetap; profil dibuat lagi dengan role dan status sebelumnya.
  INSERT INTO public.profiles(id,full_name,role,is_active)
   SELECT k.id,k.full_name,k.role,k.is_active FROM printex_keep.profiles k JOIN auth.users u ON u.id=k.id
  ON CONFLICT (id) DO UPDATE SET full_name=excluded.full_name,role=excluded.role,is_active=excluded.is_active,updated_at=now();
+ IF NOT EXISTS (SELECT 1 FROM public.profiles WHERE role='owner' AND is_active) THEN
+  RAISE NOTICE 'Belum ada akun Owner. Buat akun di Authentication → Users, lalu jalankan supabase/ACTIVATE_ADMIN.sql.';
+ END IF;
 
- -- Waktu kerja dan operator standar.
+ -- Waktu kerja dan operator standar (tanpa cadangan: standar 9 jam, istirahat & setup 2 jam).
  SELECT * INTO s FROM printex_keep.settings LIMIT 1;
  IF FOUND THEN
   UPDATE public.production_settings SET shifts=s.shifts,shift_hours=s.shift_hours,planned_downtime_minutes=s.planned_downtime_minutes,
@@ -22,7 +18,7 @@ BEGIN
    design_orders_per_hour=s.design_orders_per_hour,version=version+1;
  END IF;
 
- -- Mesin: daftar Salatiga menggantikan mesin bawaan (belum ada order yang memakainya).
+ -- Mesin tersimpan menggantikan mesin bawaan (belum ada order yang memakainya).
  IF EXISTS (SELECT 1 FROM printex_keep.machines) THEN
   DELETE FROM public.production_machines;
   INSERT INTO public.production_machines(kind,name,created_at) SELECT kind,name,created_at FROM printex_keep.machines;
@@ -36,6 +32,6 @@ BEGIN
  DROP SCHEMA printex_keep CASCADE;
 END $$;
 
--- Cek: akun dan pengaturan yang aktif sekarang.
+-- ===== Cek hasil =====
 SELECT p.full_name AS nama, p.role, p.is_active AS aktif, u.email
 FROM public.profiles p JOIN auth.users u ON u.id=p.id ORDER BY p.role, p.full_name;

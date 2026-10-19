@@ -16,7 +16,7 @@ test('scheduled cleanup preserves linked/recent photos, claims eligible files, r
  CREATE TABLE net.requests(id bigint GENERATED ALWAYS AS IDENTITY,url text,headers jsonb);
  CREATE FUNCTION net.http_delete(url text,headers jsonb,timeout_milliseconds int) RETURNS bigint LANGUAGE sql AS $$
  INSERT INTO net.requests(url,headers) VALUES(url,headers) RETURNING id $$;`)
- await db.exec(readFileSync('supabase/migrations/0034_scheduled_photo_cleanup.sql','utf8'))
+ await db.exec(readFileSync('supabase/schema/09_pembersihan_foto_terjadwal.sql','utf8'))
  await db.exec(`INSERT INTO storage.objects VALUES
  ('order-photos','linked',now()-interval '2 days'),
  ('order-photos','fresh',now()),

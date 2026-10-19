@@ -1,6 +1,6 @@
 import type { ProcessStage } from './process-metrics'
 
-export const ACCESS_SCHEMA_VERSION = 8
+export const ACCESS_SCHEMA_VERSION = 9
 export const ROLE_LABELS = { owner: 'Owner', admin: 'Admin', operator: 'Operator' } as const
 export type Role = keyof typeof ROLE_LABELS
 

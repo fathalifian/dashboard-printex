@@ -30,15 +30,16 @@ src/
 tests/                 Tes integrasi (PGlite, render, route access, browser)
 scripts/               Generator SETUP.sql dan audit ukuran database
 supabase/
-  migrations/          Seluruh migrasi berurutan → digabung ke SETUP.sql (npm run db:setup)
-  manual/              SQL sekali jalan: pindah dari database cabang, data uji, reset go-live
+  schema/              Struktur database per bagian (01–10) → digabung ke SETUP.sql (npm run db:setup)
+  manual/              Reset struktur database (dihasilkan), data uji, reset go-live
+  reset/               Sumber bagian simpan & pulihkan akun untuk file reset
   jobs/                Aktivasi job pembersih foto (pg_cron + Vault)
 docs/                  Dokumentasi operasional; docs/reference/ = desain awal
 ```
 
 ## Database
 
-Seluruh struktur database ada di `supabase/SETUP.sql`, disusun dari `supabase/migrations` dengan `npm run db:setup` (`npm run check` memastikan file itu selalu sesuai). Urutan menjalankan SQL di Supabase, termasuk pindah dari database cabang lama, ada di [supabase/manual/README.md](supabase/manual/README.md). Perintah generator hanya menulis file lokal.
+Satu lokasi produksi (Salatiga), tanpa cabang. Untuk membangun atau membangun ulang database, jalankan `supabase/manual/1_RESET_STRUKTUR_DATABASE.sql` di Supabase SQL Editor: struktur lama dihapus dan dibangun ulang, akun dan pengaturan dipertahankan, order terhapus. File itu dan `supabase/SETUP.sql` disusun dari `supabase/reset` dan `supabase/schema` dengan `npm run db:setup` (`npm run check` memastikan keduanya selalu sesuai). Lihat [supabase/manual/README.md](supabase/manual/README.md). Perintah generator hanya menulis file lokal.
 
 ## Pemeriksaan sebelum deploy
 
@@ -52,7 +53,7 @@ Tes browser membutuhkan Chrome lokal atau `npx playwright install chromium`. CI 
 
 ## Operasi
 
-Jalankan `npm start` setelah build. Error halaman menyediakan Coba lagi; error koneksi setelah sinkronisasi awal mencoba mengambil ulang data tanpa menghapus formulir. Perpindahan tahap pada board menggunakan drag-and-drop sesuai hak akses pengguna. Pemuatan order mengikuti cakupan halaman dan periode; sinkronisasi berikutnya mengambil perubahan setelah migrasi 0021. Lihat [pemuatan berdasarkan periode](docs/scoped-dashboard-loading.md) dan [ringkasan laporan harian](docs/daily-report-summaries.md) untuk alur laporan saat ini.
+Jalankan `npm start` setelah build. Error halaman menyediakan Coba lagi; error koneksi setelah sinkronisasi awal mencoba mengambil ulang data tanpa menghapus formulir. Perpindahan tahap pada board menggunakan drag-and-drop sesuai hak akses pengguna. Pemuatan order mengikuti cakupan halaman dan periode; sinkronisasi berikutnya hanya mengambil baris yang berubah. Lihat [pemuatan berdasarkan periode](docs/scoped-dashboard-loading.md) dan [ringkasan laporan harian](docs/daily-report-summaries.md) untuk alur laporan saat ini.
 
 ## Dokumentasi
 

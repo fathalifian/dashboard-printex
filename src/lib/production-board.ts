@@ -243,7 +243,7 @@ async function fetchSnapshot() {
     const previous = previousEvents.get(String(row.id))
     if (previous && previousEventRows.get(row.id) === row && previousSteps.get(row.step_id) === stepMap.get(row.step_id) && !row.next_step_id) return [previous]
     const event: ProcessEvent = {id:String(row.id),orderId:String(row.order_identity??row.order_id),spkCode:String(row.spk_code),customerName:String(row.customer_name??''),
-    stage:stageFromStep(row.step_id),kind:row.event_kind as ProcessEvent['kind'],occurredAt:String(row.occurred_at),actorName:row.actor_name?String(row.actor_name):null}
+    stage:stageFromStep(row.step_id),kind:row.event_kind as ProcessEvent['kind'],occurredAt:String(row.occurred_at),actorName:null}
     return row.next_step_id && stepMap.get(row.next_step_id)?.code !== 'ARCHIVE' ? [event,{...event,id:String(row.next_event_id ?? `${row.id}:entered`),stage:stageFromStep(row.next_step_id),kind:'entered' as const}] : [event]
   })
   if (revision !== dataRevision) { refreshAgain=true; return }
@@ -330,9 +330,8 @@ async function start() {
     if (!role) throw new Error('Role akun tidak valid. Hubungi Owner.')
     setConnection({profile:{...profile,role}})
     const {data:ready,error:setupError}=await readRequest(db().rpc('printex_online_status'))
-    if(setupError||ready?.schema_version!==ACCESS_SCHEMA_VERSION) throw new Error('Hak akses database belum diperbarui. Jalankan migrasi 0013_owner_operator_permissions.sql di Supabase SQL Editor.')
-    // A database still on the old multi-branch schema rejects branch-less reads as "access denied".
-    if(ready.branches_enabled===true) throw new Error('Database Supabase masih versi cabang. Jalankan langkah 1–3 di supabase/manual/README.md (simpan & kosongkan, SETUP.sql, pulihkan akun), lalu muat ulang halaman.')
+    // An older structure (including the multi-branch one) reports another schema version.
+    if(setupError||ready?.schema_version!==ACCESS_SCHEMA_VERSION) throw new Error('Struktur database Supabase belum diperbarui. Jalankan supabase/manual/1_RESET_STRUKTUR_DATABASE.sql di Supabase SQL Editor, lalu muat ulang halaman.')
     setConnection({reportSummariesEnabled:ready.daily_summaries_enabled===true})
     const requiredTables=['orders','customers','production_steps','process_history','profiles']
     if(requiredTables.some(table=>!ready.realtime_tables?.includes(table))) throw new Error('Realtime belum diaktifkan untuk seluruh tabel.')

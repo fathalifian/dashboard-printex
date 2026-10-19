@@ -63,4 +63,4 @@ Satu mesin hanya dapat mengerjakan satu order sekaligus. Memindahkan kartu ke ta
 
 ## Pemasangan
 
-Tabel dan fungsinya ada di migrasi `0032_production_capacity.sql`, bagian dari `supabase/SETUP.sql`. Lihat urutan pemasangan di [supabase/manual/README.md](../supabase/manual/README.md).
+Tabel dan fungsinya ada di `supabase/schema/02_master_produksi.sql` dan `07_kapasitas_produksi.sql`, bagian dari `supabase/SETUP.sql`. Lihat urutan pemasangan di [supabase/manual/README.md](../supabase/manual/README.md).

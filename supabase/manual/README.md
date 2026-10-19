@@ -1,23 +1,22 @@
 # SQL yang dijalankan manual di Supabase
 
-Printex sekarang memakai **satu lokasi produksi** (tanpa cabang). Struktur database lengkap ada di satu file: [`../SETUP.sql`](../SETUP.sql), yang disusun otomatis dari [`../migrations`](../migrations) dengan `npm run db:setup`.
+Printex memakai **satu lokasi produksi: Salatiga** (tanpa cabang, tanpa Owner Pusat). Peran akun: Owner, Admin, Operator.
 
 Jalankan di **Supabase → SQL Editor → New query**. Buka file di VS Code, tekan Ctrl+A lalu Ctrl+C, tempel di SQL Editor, lalu klik **Run**. Tunggu sampai muncul hasil sebelum lanjut ke langkah berikutnya.
 
-## Pindah dari database cabang (sekali saja)
-
 | Langkah | File | Isi |
 |---|---|---|
-| 1 | [`1_SIMPAN_DAN_KOSONGKAN.sql`](1_SIMPAN_DAN_KOSONGKAN.sql) | Menyimpan akun dan pengaturan Salatiga sementara, menghapus akun Owner Pusat dan akun cabang lain, lalu mengosongkan seluruh database lama. **Semua order terhapus.** |
-| 2 | [`../SETUP.sql`](../SETUP.sql) | Membangun seluruh struktur database satu lokasi. |
-| 3 | [`3_PULIHKAN_AKUN_PENGATURAN.sql`](3_PULIHKAN_AKUN_PENGATURAN.sql) | Mengembalikan akun (password tetap), waktu kerja, operator, mesin, link stok, dan nomor Customer Service. |
-| 4 | [`4_RESET_DATA_UJI_7_HARI.sql`](4_RESET_DATA_UJI_7_HARI.sql) | Opsional: membuat data uji 7 hari terakhir. Boleh diulang kapan saja. |
-| 5 | [`5_RESET_GO_LIVE.sql`](5_RESET_GO_LIVE.sql) | Nanti, sekali, sebelum dipakai sungguhan: mengosongkan semua order. Akun dan pengaturan tetap ada. |
+| 1 | [`1_RESET_STRUKTUR_DATABASE.sql`](1_RESET_STRUKTUR_DATABASE.sql) | **Menghapus seluruh struktur database lalu membangunnya ulang** dalam satu kali jalan. Akun (password tetap), waktu kerja, operator, mesin, link stok, dan nomor CS dipertahankan. **Semua order terhapus.** Bisa dijalankan dari kondisi apa pun (database cabang lama, database lama, atau reset yang sebelumnya terhenti) dan aman diulang. |
+| 2 | [`2_DATA_UJI_7_HARI.sql`](2_DATA_UJI_7_HARI.sql) | Opsional: membuat data uji 7 hari terakhir. Boleh diulang kapan saja. |
+| 3 | [`3_RESET_GO_LIVE.sql`](3_RESET_GO_LIVE.sql) | Nanti, sekali, sebelum dipakai sungguhan: mengosongkan semua order. Akun dan pengaturan tetap ada. |
 
-Langkah 1 dibatalkan otomatis bila tidak ada akun **Owner** aktif di Salatiga, agar tidak ada yang terkunci di luar sistem. Setelah langkah 3 atau 4, semua pengguna perlu me-refresh halaman (F5).
+Dari database cabang lama hanya akun dan pengaturan **Salatiga** yang dipertahankan; akun Owner Pusat dan akun cabang lain dihapus. Langkah 1 dibatalkan tanpa perubahan bila tidak ada akun **Owner** aktif yang ikut dipertahankan, agar tidak ada yang terkunci di luar sistem. Setelah langkah 1 atau 2, semua pengguna perlu me-refresh halaman (F5).
 
-## Database baru (project Supabase kosong)
+## Project Supabase baru (kosong)
 
-1. Jalankan [`../SETUP.sql`](../SETUP.sql).
+1. Jalankan [`1_RESET_STRUKTUR_DATABASE.sql`](1_RESET_STRUKTUR_DATABASE.sql) (atau [`../SETUP.sql`](../SETUP.sql)).
 2. Buat akun Owner di Authentication → Users, lalu jalankan [`../ACTIVATE_ADMIN.sql`](../ACTIVATE_ADMIN.sql).
-3. Opsional: langkah 4 di atas untuk data uji.
+
+## Sumber file
+
+`1_RESET_STRUKTUR_DATABASE.sql` dan `../SETUP.sql` disusun otomatis oleh `npm run db:setup` dari [`../reset/backup.sql`](../reset/backup.sql), [`../schema`](../schema), dan [`../reset/restore.sql`](../reset/restore.sql). Jangan diedit langsung; `npm run check` memastikan keduanya selalu sesuai sumbernya.

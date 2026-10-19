@@ -1,5 +1,5 @@
--- LANGKAH 4 — DATA UJI 7 HARI TERAKHIR (PRINTEX)
--- Jalankan di Supabase SQL Editor setelah langkah 1–3 (atau setelah SETUP.sql pada database baru).
+-- LANGKAH 2 (OPSIONAL) — DATA UJI 7 HARI TERAKHIR (PRINTEX)
+-- Jalankan di Supabase SQL Editor setelah langkah 1 (1_RESET_STRUKTUR_DATABASE.sql).
 -- Seluruh pekerjaan ada dalam SATU blok: semua berhasil, atau tidak ada yang berubah.
 -- Aman dijalankan ulang: setiap kali, semua order dikosongkan lalu diisi dari awal.
 --
@@ -17,7 +17,7 @@
 --      TIDAK dicatat dan TIDAK dihitung di stasiun Press dashboard.
 --    - Kesibukan berbeda tiap hari; ada order baru, sedang desain, menunggu pembayaran,
 --      antre cetak, terlambat, prioritas, selesai, dan diambil customer.
---    Semua order uji bertanda source='simulation' dan SPK 'UJI-...'. Hapus dengan langkah 5.
+--    Semua order uji bertanda source='simulation' dan SPK 'UJI-...'. Hapus dengan langkah 3.
 --
 -- File foto di Storage tidak dihapus lewat SQL; kosongkan bucket "order-photos" dari menu
 -- Storage bila perlu. Semua pengguna perlu memuat ulang (refresh) halaman setelah ini.
@@ -31,12 +31,6 @@ DECLARE
  names text[] := ARRAY['Bu Nisa','Pak Arif','Bu Rina','Mas Dimas','Mbak Ayu','Pak Hendra','Bu Wulan','Mas Bayu',
   'Mbak Sari','Pak Fajar','Bu Ratna','Mas Reza','CV Sinar Jaya','Toko Berkah','SMA Bina Bangsa','Komunitas Gowes'];
  sublim_types text[] := ARRAY['Sublim','Sublim','Jersey','Jersey','Batik','Umbul-umbul'];
- wanted text[] := ARRAY[
-  'orders','customers','process_history','order_step_events','order_activities',
-  'schedule_items','production_schedules','order_photo_cleanup','photo_cleanup_requests',
-  'report_contributions','report_daily_summaries','report_order_payloads',
-  'report_refresh_queue','printex_row_changes','print_runs','operator_shifts'];
- found text[];
  m record; d integer; k integer; idx integer; cnt integer; rnd numeric;
  day_date date; free_at timestamptz; start_at timestamptz; len interval; ready timestamptz; readies timestamptz[];
  -- Mencari waktu mulai yang muat dalam blok kerja mesin.
@@ -51,8 +45,9 @@ DECLARE
  step_ids jsonb;
 BEGIN
  -- ===== Pemeriksaan =====
- IF to_regclass('public.production_machines') IS NULL OR to_regclass('public.print_runs') IS NULL THEN
-  RAISE EXCEPTION 'Jalankan supabase/SETUP.sql terlebih dahulu.';
+ -- Struktur lama (masih punya tabel order_step_events) harus dibangun ulang dulu.
+ IF to_regclass('public.production_machines') IS NULL OR to_regclass('public.order_step_events') IS NOT NULL THEN
+  RAISE EXCEPTION 'Jalankan 1_RESET_STRUKTUR_DATABASE.sql terlebih dahulu.';
  END IF;
  IF NOT EXISTS (SELECT 1 FROM public.production_machines WHERE kind='fedar' AND removed_at IS NULL)
   OR NOT EXISTS (SELECT 1 FROM public.production_machines WHERE kind='press' AND removed_at IS NULL) THEN
@@ -60,12 +55,10 @@ BEGIN
  END IF;
 
  -- ===== 1. Hapus semua data =====
- SELECT array_agg(format('public.%I', c.relname) ORDER BY c.relname) INTO found
- FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
- WHERE n.nspname = 'public' AND c.relkind = 'r' AND c.relname = ANY(wanted);
- -- Tanpa CASCADE: bila tabel lain masih mereferensikan data ini, semuanya dibatalkan.
- EXECUTE 'TRUNCATE TABLE ' || array_to_string(found, ', ');
- IF to_regclass('public.printex_spk_seq') IS NOT NULL THEN ALTER SEQUENCE public.printex_spk_seq RESTART; END IF;
+ TRUNCATE TABLE public.orders, public.customers, public.process_history, public.print_runs, public.operator_shifts,
+  public.order_photo_cleanup, public.photo_cleanup_requests, public.report_contributions, public.report_daily_summaries,
+  public.report_order_payloads, public.report_refresh_queue, public.printex_row_changes;
+ ALTER SEQUENCE public.printex_spk_seq RESTART;
 
  -- ===== 2. Order uji 7 hari =====
  -- Lewati trigger jam-sekarang agar riwayat bisa memakai waktu lampau (hanya di transaksi ini).
@@ -221,12 +214,11 @@ BEGIN
    seq := seq+1; oid := gen_random_uuid(); cidx := 1+floor(random()*array_length(customer_ids,1))::integer;
    spk := 'UJI-'||to_char(order_day,'DDMM')||'-'||lpad(seq::text,4,'0');
    INSERT INTO public.orders(id,spk_code,customer_id,production_type,meter,paper_width,customer_type,order_state,
-    current_step_id,order_date,due_at,started_at,completed_at,archived_at,archive_finalized_at,delivery_method,notes,source,
+    current_step_id,order_date,due_at,archived_at,archive_finalized_at,delivery_method,notes,source,
     created_at,updated_at,print_machine_id)
    VALUES(oid,spk,customer_ids[cidx],j_type[idx],j_meter[idx],j_width[idx],CASE WHEN prio THEN 'priority' ELSE 'regular' END,
     CASE WHEN stages[reached] IN ('DONE','ARCHIVE') THEN 'completed' ELSE 'active' END,
-    (step_ids->>stages[reached])::uuid,order_day,order_day+CASE WHEN prio THEN 1 ELSE 2+floor(random()*2)::integer END,t2,
-    CASE WHEN reached>=array_position(stages,'DONE') THEN done_at END,
+    (step_ids->>stages[reached])::uuid,order_day,order_day+CASE WHEN prio THEN 1 ELSE 2+floor(random()*2)::integer END,
     CASE WHEN stages[reached]='ARCHIVE' THEN finalized END, CASE WHEN stages[reached]='ARCHIVE' THEN finalized END,
     CASE WHEN stages[reached]='ARCHIVE' THEN 'received' END,
     '[DATA UJI] Order rekayasa untuk menguji dashboard','simulation',t1,times[reached],j_machine[idx]);
@@ -238,13 +230,13 @@ BEGIN
    END LOOP;
    -- Mulai/Selesai cetak (masih terbuka bila mesin sedang mencetak sekarang).
    IF j_ps[idx] IS NOT NULL THEN
-    INSERT INTO public.print_runs(order_id,machine_id,stage,started_at,ended_at,created_by)
-    VALUES(oid,j_machine[idx],'printing',j_ps[idx],CASE WHEN j_pe[idx] <= cutoff THEN j_pe[idx] END,NULL);
+    INSERT INTO public.print_runs(order_id,machine_id,stage,started_at,ended_at)
+    VALUES(oid,j_machine[idx],'printing',j_ps[idx],CASE WHEN j_pe[idx] <= cutoff THEN j_pe[idx] END);
    END IF;
    -- Mulai/Selesai press hanya untuk lini Sublim.
    IF j_kind[idx]='fedar' AND j_qs[idx] IS NOT NULL THEN
-    INSERT INTO public.print_runs(order_id,machine_id,stage,started_at,ended_at,created_by)
-    VALUES(oid,press_machine,'press',j_qs[idx],j_qe[idx],NULL);
+    INSERT INTO public.print_runs(order_id,machine_id,stage,started_at,ended_at)
+    VALUES(oid,press_machine,'press',j_qs[idx],j_qe[idx]);
    END IF;
   END LOOP;
 
@@ -273,9 +265,9 @@ BEGIN
    seq := seq+1; oid := gen_random_uuid(); cidx := 1+floor(random()*array_length(customer_ids,1))::integer;
    spk := 'UJI-'||to_char(order_day,'DDMM')||'-'||lpad(seq::text,4,'0');
    INSERT INTO public.orders(id,spk_code,customer_id,production_type,meter,paper_width,customer_type,order_state,
-    current_step_id,order_date,due_at,started_at,notes,source,created_at,updated_at)
+    current_step_id,order_date,due_at,notes,source,created_at,updated_at)
    VALUES(oid,spk,customer_ids[cidx],prod_type,meters,width,CASE WHEN prio THEN 'priority' ELSE 'regular' END,'active',
-    (step_ids->>stages[reached])::uuid,order_day,order_day+CASE WHEN prio THEN 1 ELSE 2 END,CASE WHEN reached>=2 THEN times[2] END,
+    (step_ids->>stages[reached])::uuid,order_day,order_day+CASE WHEN prio THEN 1 ELSE 2 END,
     '[DATA UJI] Order rekayasa untuk menguji dashboard','simulation',t1,times[reached]);
    INSERT INTO public.process_history(order_id,order_identity,spk_code,step_id,event_kind,customer_name,occurred_at)
    VALUES(oid,oid::text,spk,(step_ids->>'ORDER_IN')::uuid,'entered',names[cidx],t1);

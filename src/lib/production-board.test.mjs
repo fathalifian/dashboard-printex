@@ -65,7 +65,7 @@ function backend(incremental = false, scoped = false, summaries = false) {
         seen.clear();for(const [key,value] of current)seen.set(key,value)
         return {data:{cursor:String(revision),changes:args.p_after===null?[]:[...changes.values()].filter(change=>change.revision>Number(args.p_after))}}
       }
-      if(name==='printex_online_status')return {data:{schema_version:8,daily_summaries_enabled:summaries,realtime_tables:Object.keys(state)}}
+      if(name==='printex_online_status')return {data:{schema_version:9,daily_summaries_enabled:summaries,realtime_tables:Object.keys(state)}}
       if (name === 'printex_claim_photo_cleanup') return { data: [...photos.keys()].filter(path => (!args.p_path || args.p_path === path) && !state.orders.some(order => order.photo_path === path)).map(path => ({ path })) }
       const row=state.orders.find(row=>row.id===args.p_order_id)
       if (name === 'printex_set_order_photo') {
@@ -333,19 +333,19 @@ test('old database permissions never enable the new UI',async()=>{
   const a=device(api.client)
   a.board.useOnlineConnection()
   await waitFor(()=>a.board.useOnlineConnection().state==='error')
-  assert.match(a.board.useOnlineConnection().error,/0013/)
+  assert.match(a.board.useOnlineConnection().error,/1_RESET_STRUKTUR_DATABASE.sql/)
   await assert.rejects(()=>a.board.addOrder({},'forged'),/sinkronisasi/)
   assert.equal(api.state.orders.length,0)
 })
 
-test('a database still on the multi-branch schema explains the migration instead of a login error',async()=>{
+test('a database still on the multi-branch schema explains the rebuild instead of a login error',async()=>{
   const api=backend()
   const rpc=api.client.rpc
   api.client.rpc=(name,args)=>name==='printex_online_status'?Promise.resolve({data:{schema_version:8,branches_enabled:true,realtime_tables:Object.keys(api.state)}}):rpc(name,args)
   const a=device(api.client)
   a.board.useOnlineConnection()
   await waitFor(()=>a.board.useOnlineConnection().state==='error')
-  assert.match(a.board.useOnlineConnection().error,/masih versi cabang.*supabase\/manual\/README\.md/)
+  assert.match(a.board.useOnlineConnection().error,/belum diperbarui.*1_RESET_STRUKTUR_DATABASE.sql/)
 })
 
 

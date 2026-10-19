@@ -19,7 +19,7 @@ async function authorize(selfOnlyAllowed = false) {
   if (profileError || !profile?.is_active || (!selfOnlyAllowed && !canManageUsers(profile.role))) throw new Error('Hanya Owner yang dapat mengelola akun.')
   if (!canAccessPage(profile.role, '/settings/users')) throw new Error('Anda tidak memiliki akses Kelola Akun.')
   const { data: status, error: statusError } = await client.rpc('printex_online_status')
-  if (statusError || status?.schema_version !== ACCESS_SCHEMA_VERSION) throw new Error('Jalankan migrasi 0013_owner_operator_permissions.sql terlebih dahulu.')
+  if (statusError || status?.schema_version !== ACCESS_SCHEMA_VERSION) throw new Error('Struktur database belum diperbarui. Jalankan supabase/manual/1_RESET_STRUKTUR_DATABASE.sql terlebih dahulu.')
   return { client, user, profile }
 }
 function message(error: unknown) {

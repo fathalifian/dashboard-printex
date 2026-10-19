@@ -49,7 +49,7 @@ test('setup seeds one location: four machines, standard working time and crew, n
   assert.equal(await one(`SELECT to_regclass('public.branches') AS t`).then(row => row.t), null)
   await as(owner)
   const status = (await one('SELECT printex_online_status() AS s')).s
-  assert.equal(status.schema_version, 8)
+  assert.equal(status.schema_version, 9)
   assert.equal(status.daily_summaries_enabled, true)
 })
 

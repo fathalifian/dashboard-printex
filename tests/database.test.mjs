@@ -17,9 +17,8 @@ ALTER TABLE storage.objects ENABLE ROW LEVEL SECURITY;
 GRANT USAGE ON SCHEMA storage TO authenticated,anon;
 GRANT SELECT,INSERT,UPDATE,DELETE ON storage.objects TO authenticated;
 GRANT SELECT ON storage.buckets TO authenticated;`)
-for(const file of readdirSync('supabase/migrations').filter(file=>file.endsWith('.sql')).sort()) {
-  const sql=readFileSync('supabase/migrations/'+file,'utf8').replace(/CREATE EXTENSION IF NOT EXISTS "uuid-ossp";/,'')
-  try {await db.exec(sql)}catch(error){console.error('Migration failed:',file,error.message);throw error}
+for(const file of readdirSync('supabase/schema').filter(file=>file.endsWith('.sql')).sort()) {
+  try {await db.exec(readFileSync('supabase/schema/'+file,'utf8'))}catch(error){console.error('Schema file failed:',file,error.message);throw error}
 }
 const admin='00000000-0000-4000-8000-000000000001'
 const staff='00000000-0000-4000-8000-000000000002'
@@ -42,8 +41,8 @@ test('scoped snapshot keeps active orders, period archives and full histories wi
   for(const [i,orderId] of ids.entries()){
    const finalized=i===0?null:i===1?'2026-01-02T00:00:00Z':'2026-10-01T01:00:00Z'
    await db.query(`INSERT INTO orders(id,spk_code,customer_id,production_type,meter,current_step_id,order_date,
-    archived_at,archive_finalized_at,delivery_method,completed_at)
-    VALUES($1,$2,$3,'DTF',10,(SELECT id FROM production_steps WHERE code=$4),'2026-01-01',$5,$5,$6,$5)`,
+    archived_at,archive_finalized_at,delivery_method)
+    VALUES($1,$2,$3,'DTF',10,(SELECT id FROM production_steps WHERE code=$4),'2026-01-01',$5,$5,$6)`,
     [orderId,'SCOPE-'+i,customer,i===0?'ORDER_IN':'ARCHIVE',finalized,finalized?'pickup':null])
   }
   await db.query('DELETE FROM process_history WHERE order_id=ANY($1::uuid[])',[ids])
@@ -54,7 +53,7 @@ test('scoped snapshot keeps active orders, period archives and full histories wi
    }
   }
   await db.exec('ALTER TABLE orders ENABLE TRIGGER orders_enforce_archiving; SET ROLE authenticated')
-  const snapshot=async(start,end,detail=null,changes=null)=>(await db.query('SELECT printex_scoped_snapshot($1,$2,NULL,$3,$4) AS data',[start,end,detail,changes])).rows[0].data
+  const snapshot=async(start,end,detail=null,changes=null)=>(await db.query('SELECT printex_scoped_snapshot($1,$2,$3,$4) AS data',[start,end,detail,changes])).rows[0].data
   const today=await snapshot('2026-10-01','2026-10-01')
   assert.deepEqual(today.orders.map(o=>o.id).sort(),[ids[0],ids[2]])
   assert.equal(today.process_history.filter(h=>h.order_identity===ids[2]).length,2,'Retains entries before the selected period')
@@ -75,7 +74,7 @@ test('scoped snapshot keeps active orders, period archives and full histories wi
   const first=await snapshot('2026-10-01','2026-10-01')
   assert.equal(first.process_history.length,5000)
   assert.equal(first.history_more,true)
-  const second=(await db.query('SELECT printex_scoped_snapshot($1,$2,NULL,NULL,NULL,$3,true,$4) AS data',
+  const second=(await db.query('SELECT printex_scoped_snapshot($1,$2,NULL,NULL,$3,true,$4) AS data',
    ['2026-10-01','2026-10-01',first.history_cursor,first.identities])).rows[0].data
   assert.equal(second.history_more,false)
   assert.equal(second.orders.length,0)
@@ -116,7 +115,7 @@ test('compact transitions keep timing destinations and received orders finalize 
   assert.equal(entries.length,6,'Initial anchor and one row per transition')
   assert.equal(entries.filter(e=>e.event_kind==='entered').length,1)
   assert.equal(entries.filter(e=>e.next_step_id).length,5)
-  const snapshot=(await db.query("SELECT printex_scoped_snapshot('2026-10-01','2026-10-01',NULL,$1) AS data",[compact])).rows[0].data
+  const snapshot=(await db.query("SELECT printex_scoped_snapshot('2026-10-01','2026-10-01',$1) AS data",[compact])).rows[0].data
   assert.equal(snapshot.process_history.filter(e=>e.next_step_id).length,5,'Compact fields survive RPC transport')
   const row=(await db.query('SELECT * FROM orders WHERE id=$1',[compact])).rows[0]
   await mutate('archive',{deliveryMethod:'received'},row.version,compact)
@@ -124,7 +123,7 @@ test('compact transitions keep timing destinations and received orders finalize 
   assert.equal(archived.delivery_method,'received')
   assert.ok(archived.archive_finalized_at)
   assert.equal(archived.archive_finalized_at.toISOString(),archived.archived_at.toISOString())
-  const receiptSnapshot=(await db.query("SELECT printex_scoped_snapshot('2026-10-01','2026-10-01',NULL,$1) AS data",[compact])).rows[0].data
+  const receiptSnapshot=(await db.query("SELECT printex_scoped_snapshot('2026-10-01','2026-10-01',$1) AS data",[compact])).rows[0].data
   const archiveStep=(await db.query("SELECT id FROM production_steps WHERE code='ARCHIVE'")).rows[0].id
   assert.ok(receiptSnapshot.process_history.every(event=>event.step_id!==archiveStep),'Receipt is computed from orders rather than loading a seventh process')
   assert.ok(receiptSnapshot.orders.find(order=>order.id===compact).archive_finalized_at)
@@ -133,7 +132,7 @@ test('compact transitions keep timing destinations and received orders finalize 
  } finally {await db.exec('ROLLBACK')}
 })
 
-test('database migrations, RLS, transactional CRUD, versions and archive lifecycle',async()=>{
+test('database schema, RLS, transactional CRUD, versions and archive lifecycle',async()=>{
   await mutate('create',input)
   let row=await order()
   assert.equal(row.order_state,'active')
@@ -171,11 +170,11 @@ test('inactive staff and anonymous users cannot read business data or write',asy
   await db.query(`SELECT set_config('request.jwt.claim.sub',$1,false)`,[admin])
 })
 
-test('bundled setup equals the migrations and refuses a database that already has tables; admin activation is repeatable',async()=>{
+test('bundled setup equals the schema files and refuses a database that already has tables; admin activation is repeatable',async()=>{
   await db.exec('RESET ROLE')
   const setup=readFileSync('supabase/SETUP.sql','utf8')
-  for(const file of readdirSync('supabase/migrations').filter(file=>file.endsWith('.sql'))) assert.ok(setup.includes('-- supabase/migrations/'+file),file)
-  await assert.rejects(db.exec(setup.replace(/CREATE EXTENSION IF NOT EXISTS "uuid-ossp";/,'')),/SIMPAN_DAN_KOSONGKAN/)
+  for(const file of readdirSync('supabase/schema').filter(file=>file.endsWith('.sql'))) assert.ok(setup.includes('-- supabase/schema/'+file),file)
+  await assert.rejects(db.exec(setup.replace(/CREATE EXTENSION IF NOT EXISTS "uuid-ossp";/,'')),/1_RESET_STRUKTUR_DATABASE/)
   await db.exec('ROLLBACK')
   await db.query("INSERT INTO auth.users(id,email) VALUES('99999999-0000-4000-8000-000000000001','fathalifian@gmail.com')")
   const activate=readFileSync('supabase/ACTIVATE_ADMIN.sql','utf8')
@@ -246,7 +245,7 @@ test('hard deletion removes Auth and profile while preserving finalized orders a
   await db.query('DELETE FROM auth.users WHERE id=$1',[owner])
   assert.equal((await db.query('SELECT * FROM profiles WHERE id=$1',[owner])).rows.length,0)
   const after=(await db.query('SELECT * FROM orders WHERE id=$1',[key])).rows[0]
-  assert.equal(after.created_by,null)
+  assert.ok(after,'The order of a removed account stays')
   assert.equal(String(after.archive_finalized_at),String(before.archive_finalized_at))
   assert.equal((await db.query('SELECT count(*)::int AS n FROM process_history WHERE order_id=$1',[key])).rows[0].n,historyBefore)
 })
@@ -308,22 +307,9 @@ test('operator permissions are enforced by RPC and RLS across every board stage'
   await db.exec('RESET ROLE')
 })
 
-test('role migration converts existing users in place and is safe to rerun',async()=>{
+test('only the Owner, Admin and Operator roles exist',async()=>{
   await db.exec('RESET ROLE')
-  const beforeOrders=(await db.query('SELECT * FROM orders ORDER BY id')).rows
-  const beforeHistory=(await db.query('SELECT * FROM process_history ORDER BY id')).rows
-  await db.exec('ALTER TABLE profiles DROP CONSTRAINT profiles_role_check')
-  await db.query("UPDATE profiles SET role='superadmin' WHERE id=$1",[admin])
-  await db.query("UPDATE profiles SET role='staff' WHERE id=$1",[staff])
-  const beforeProfiles=(await db.query('SELECT * FROM profiles ORDER BY id')).rows
-  const migration=readFileSync('supabase/migrations/0013_owner_operator_permissions.sql','utf8')
-  await db.exec(migration)
-  await db.exec(migration)
-  const afterProfiles=(await db.query('SELECT * FROM profiles ORDER BY id')).rows
-  assert.deepEqual(afterProfiles,beforeProfiles.map(profile=>({...profile,role:profile.role==='superadmin'?'owner':profile.role==='staff'?'operator':profile.role})))
-  assert.deepEqual((await db.query('SELECT * FROM orders ORDER BY id')).rows,beforeOrders)
-  assert.deepEqual((await db.query('SELECT * FROM process_history ORDER BY id')).rows,beforeHistory)
-  await assert.rejects(()=>db.query("UPDATE profiles SET role='superadmin' WHERE id=$1",[admin]),/profiles_role_check/)
+  for(const role of ['superadmin','staff','central_owner']) await assert.rejects(()=>db.query('UPDATE profiles SET role=$2 WHERE id=$1',[admin,role]),/profiles_role_check/)
 })
 
 test('customer service contact is shared, admin-managed and protected by RLS', async () => {
@@ -352,8 +338,6 @@ test('customer service contact is shared, admin-managed and protected by RLS', a
   assert.equal((await update('')).rows[0].whatsapp_number, '')
   await update('6289876543210')
   await db.exec('RESET ROLE')
-  const migration = readFileSync('supabase/migrations/0014_customer_service.sql', 'utf8')
-  await db.exec(migration); await db.exec(migration)
   assert.equal((await read()).rows[0].whatsapp_number, '6289876543210')
   await db.query('UPDATE profiles SET is_active=false WHERE id=$1', [csAdmin])
   await db.exec('SET ROLE authenticated')
@@ -409,9 +393,6 @@ test('optional photos enforce private storage, ownership roles, concurrency, and
   await assert.rejects(async () => link(null, (await row()).version), /arsip/)
   assert.equal((await row()).photo_path, replacement)
   await db.exec('RESET ROLE')
-  const migration = readFileSync('supabase/migrations/0015_order_photos.sql', 'utf8')
-  await db.exec(migration); await db.exec(migration)
-  await db.exec(readFileSync('supabase/migrations/0016_photo_cleanup.sql', 'utf8'))
   assert.equal((await row()).photo_path, replacement)
   await mutate('finish', {}, (await row()).version, orderId)
   assert.equal((await row()).photo_path, null)
@@ -433,7 +414,6 @@ test('optional photos enforce private storage, ownership roles, concurrency, and
 
 test('cleanup claims only orphan photos, retries safely, and queues photos on permanent order deletion', async () => {
   await db.exec('RESET ROLE')
-  await db.exec(readFileSync('supabase/migrations/0016_photo_cleanup.sql', 'utf8'))
   const owner = 'aaaaaaaa-1111-4000-8000-000000000001'
   const orderId = 'cccccccc-2222-4000-8000-000000000001'
   const attached = `${orderId}/cccccccc-3333-4000-8000-000000000001.webp`
@@ -502,10 +482,6 @@ test('shared stock shortcuts persist Owner/Admin edits while RLS denies Operator
   await assert.rejects(() => db.query("DELETE FROM stock_shortcuts WHERE id='fabric'"), /permission denied/)
   await assert.rejects(() => db.query("UPDATE stock_shortcuts SET id='other' WHERE id='fabric'"), /permission denied/)
   await db.exec('RESET ROLE')
-  const migration = readFileSync('supabase/migrations/0017_stock_shortcuts.sql', 'utf8')
-  await db.exec(migration); await db.exec(migration)
-  const ownerMigration = readFileSync('supabase/migrations/0018_owner_stock_shortcuts.sql', 'utf8')
-  await db.exec(ownerMigration); await db.exec(ownerMigration)
   assert.equal((await read()).rows[0].label, 'Persediaan DTF')
   await db.exec('SET ROLE authenticated')
   await user(shortcutOwner)
@@ -524,7 +500,6 @@ test('shared stock shortcuts persist Owner/Admin edits while RLS denies Operator
 
 test('optional WhatsApp persists, supports empty values, and survives edits from older clients', async () => {
   await db.exec('RESET ROLE')
-  await db.exec(readFileSync('supabase/migrations/0020_optional_customer_phone.sql', 'utf8'))
   await db.query("SELECT set_config('request.jwt.claim.sub',$1,false)", [admin])
   await db.exec('SET ROLE authenticated')
   const orderId = 'ffffffff-2222-4000-8000-000000000001'
@@ -546,30 +521,25 @@ test('incremental cursor records deletes, denies anonymous reads and rolls back 
  await db.query("SELECT set_config('request.jwt.claim.sub',$1,false)",[admin])
  await db.query("UPDATE profiles SET role='owner',is_active=true WHERE id=$1",[admin])
  await db.exec('SET ROLE authenticated')
- const start=(await db.query('SELECT printex_sync_changes(NULL,NULL) AS s')).rows[0].s
+ const start=(await db.query('SELECT printex_sync_changes(NULL) AS s')).rows[0].s
  await db.exec('RESET ROLE')
  await db.exec("BEGIN; INSERT INTO customers(id,name) VALUES('eeeeeeee-0000-4000-8000-000000000001','Rollback'); ROLLBACK;")
- const afterRollback=(await db.query('SELECT printex_sync_changes(NULL,NULL) AS s')).rows[0].s
+ const afterRollback=(await db.query('SELECT printex_sync_changes(NULL) AS s')).rows[0].s
  assert.equal(afterRollback.cursor,start.cursor)
  await db.exec("INSERT INTO customers(id,name) VALUES('eeeeeeee-0000-4000-8000-000000000001','Temporary'); DELETE FROM customers WHERE id='eeeeeeee-0000-4000-8000-000000000001';")
- const delta=(await db.query('SELECT printex_sync_changes($1,NULL) AS s',[start.cursor])).rows[0].s
+ const delta=(await db.query('SELECT printex_sync_changes($1) AS s',[start.cursor])).rows[0].s
  assert.ok(delta.changes.some(change=>change.table==='customers'&&change.id==='eeeeeeee-0000-4000-8000-000000000001'))
  await db.exec("INSERT INTO customers(id,name) SELECT gen_random_uuid(),'Batch sync' FROM generate_series(1,2001)")
- const bulk=(await db.query('SELECT printex_sync_changes($1,NULL) AS s',[delta.cursor])).rows[0].s
+ const bulk=(await db.query('SELECT printex_sync_changes($1) AS s',[delta.cursor])).rows[0].s
  assert.equal(bulk.reset,true)
  assert.deepEqual(bulk.changes,[])
  await db.exec('SET ROLE anon')
- await assert.rejects(()=>db.query('SELECT printex_sync_changes(NULL,NULL)'),/permission denied/)
+ await assert.rejects(()=>db.query('SELECT printex_sync_changes(NULL)'),/permission denied/)
  await db.exec('RESET ROLE')
 })
 
 test('paper width persists create/edit, rejects invalid widths and assigns DTF automatically, and preserves omitted legacy fields',async()=>{
  await db.exec('RESET ROLE')
- const sql=readFileSync('supabase/migrations/0022_paper_width.sql','utf8')
- await db.exec(sql);await db.exec(sql)
- await db.exec(readFileSync('supabase/migrations/0023_non_dtf_paper_width.sql','utf8'))
- const dtfSql=readFileSync('supabase/migrations/0024_dtf_paper_width.sql','utf8')
- await db.exec(dtfSql);await db.exec(dtfSql)
  await db.query("SELECT set_config('request.jwt.claim.sub',$1,false)",[admin])
  await db.exec('SET ROLE authenticated')
  const paperId='eeeeeeee-0000-4000-8000-000000000002'

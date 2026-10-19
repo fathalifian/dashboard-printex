@@ -24,7 +24,6 @@ function actions(role, active = true, signedIn = true) {
   let writes = 0
   let saved = ''
   const client = {
-    rpc: async () => ({ data: { branches_enabled: false } }),
     auth: { getUser: async () => ({ data: { user: signedIn ? { id: 'user' } : null } }) },
     from(table) {
       if (table === 'profiles') return { select: () => ({ eq: () => ({ single: async () => ({ data: { role, is_active: active } }) }) }) }

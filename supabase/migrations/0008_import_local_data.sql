@@ -1,2 +1,0 @@
--- Reserved migration number. Browser import has been retired.
--- Existing installations remove the old endpoint through migration 0009.

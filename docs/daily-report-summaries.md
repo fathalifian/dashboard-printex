@@ -15,7 +15,7 @@ Tabel turunan tidak dapat dibaca atau ditulis langsung oleh akun pengguna. RPC m
 
 ## Pemasangan dan pemeriksaan
 
-Sumber SQL: `supabase/migrations/0031_daily_reports.sql`, bagian dari `supabase/SETUP.sql`. Pembacaan ringkasan diaktifkan melalui `printex_online_status().daily_summaries_enabled`. Order yang sudah ada dimasukkan ke antrean saat pemasangan dan diproses oleh worker. `tests/production-data.test.mjs` menguji output, intake, rincian, antrean perubahan, dan milestone order yang dihapus.
+Sumber SQL: `supabase/schema/06_laporan_harian.sql`, bagian dari `supabase/SETUP.sql`. Pembacaan ringkasan diaktifkan melalui `printex_online_status().daily_summaries_enabled`. Order yang sudah ada dimasukkan ke antrean saat pemasangan dan diproses oleh worker. `tests/production-data.test.mjs` menguji output, intake, rincian, antrean perubahan, dan milestone order yang dihapus.
 
 ## Hasil aktivasi 2 Oktober 2026 (masa multi-cabang, sebelum pindah ke satu lokasi)
 
