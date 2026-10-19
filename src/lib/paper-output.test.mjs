@@ -22,9 +22,9 @@ test('paper output counts DTF and Sublim widths, keeps unknown separate and dedu
  assert.equal(output.trend[1].values['1.2'].meter,0)
  assert.equal(paperOutput(orders,history,'2026-09-27').totals['1.2'].count,0)
  assert.equal(paperOutput(orders,history,'2026-09-25').totals['1.2'].count,0)
- const branch=paperOutput([orders[0]],history,'2026-09-26')
- assert.equal(branch.totals['1.6'].meter,0)
- assert.equal(branch.totals['1.2'].meter,10)
+ const single=paperOutput([orders[0]],history,'2026-09-26')
+ assert.equal(single.totals['1.6'].meter,0)
+ assert.equal(single.totals['1.2'].meter,10)
 })
 test('paper trend includes empty days and inclusive range endpoints',()=>{
  const history=[event('a','2026-09-01T00:00:00Z'),event('b','2026-09-03T00:00:00Z')]

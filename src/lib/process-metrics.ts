@@ -3,7 +3,6 @@ export const BOARD_STAGES = ['incoming', 'design', 'design_done', 'printing', 'p
 export type ProcessStage = typeof PROCESS_STAGES[number]
 export type ProcessEvent = {
   orderExists?: boolean
-  branchId?: string
   id: string
   orderId: string
   spkCode: string

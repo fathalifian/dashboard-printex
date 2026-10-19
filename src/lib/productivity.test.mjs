@@ -141,15 +141,15 @@ test('DTF bypassing Press only contributes to DTF, also with non-DTF paper filte
   assert.equal(summarizeProductivity(result.dtf).productivity, 50)
 })
 
-test('Press requires an actual visit; a DTF with recorded Press uses that actual duration', () => {
+test('a pressed DTF counts for DTF printing but not for the Press station (own press line)', () => {
   const item = order('dtf', { production_type: 'DTF' })
   const events = [
     ...move(item, null, 'design_done', 0), ...move(item, 'design_done', 'printing', 1),
     ...move(item, 'printing', 'press', 3), ...move(item, 'press', 'done', 4),
   ]
   const result = productivityRows([item], events, day, day)
-  assert.equal(result.press.length, 1)
-  assert.equal(result.press[0].durationMilliseconds, HOUR)
+  assert.equal(result.dtf.length, 1)
+  assert.equal(result.press.length, 0)
 })
 
 test('revisits sum via orderTiming once per SPK and use the latest exit, without clipping to range', () => {
@@ -169,9 +169,9 @@ test('revisits sum via orderTiming once per SPK and use the latest exit, without
   assert.equal(result.press[0].durationMilliseconds, timing.stages.press.milliseconds)
 })
 
-test('missing history is not fabricated and unrelated branch/order history is ignored', () => {
+test('missing history is not fabricated and unrelated order history is ignored', () => {
   const item = order()
-  const foreign = order('other-branch')
+  const foreign = order('other-order')
   const events = history(foreign)
   assert.deepEqual(productivityRows([item], events, day, day), { sublim: [], dtf: [], press: [] })
 })
@@ -185,3 +185,4 @@ test('archived orders retain completed productivity and non-DTF production types
   assert.equal(result.press.length, 3)
   assert.equal(result.dtf.length, 0)
 })
+

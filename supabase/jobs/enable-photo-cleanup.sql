@@ -1,4 +1,4 @@
--- Run after photo-cleanup.sql and after adding the two documented Vault secrets.
+-- Run after supabase/SETUP.sql and after adding the two documented Vault secrets.
 BEGIN;
 CREATE EXTENSION IF NOT EXISTS pg_cron;
 CREATE EXTENSION IF NOT EXISTS pg_net;
@@ -10,7 +10,7 @@ DO $$ BEGIN
     RAISE EXCEPTION 'Configure photo cleanup Vault secrets first';
   END IF;
   IF to_regprocedure('public.printex_run_photo_cleanup()') IS NULL THEN
-    RAISE EXCEPTION 'Install photo-cleanup.sql first';
+    RAISE EXCEPTION 'Jalankan supabase/SETUP.sql terlebih dahulu';
   END IF;
 END $$;
 SELECT cron.schedule('printex-photo-cleanup','*/5 * * * *','SELECT public.printex_run_photo_cleanup();');

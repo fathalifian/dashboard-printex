@@ -5,10 +5,8 @@ import { runInNewContext } from 'node:vm'
 import ts from 'typescript'
 
 const codes=['ORDER_IN','DESIGN','DESIGN_DONE','PRINTING','PRESS','DONE','ARCHIVE']
-function backend(pilot = false, incremental = false, scoped = false, summaries = false) {
+function backend(incremental = false, scoped = false, summaries = false) {
   const state={orders:[],customers:[],production_steps:codes.map((code,index)=>({id:String(index),code})),process_history:[],profiles:[{id:'user',full_name:'Admin',role:'owner',is_active:true}]}
-  const branches=[{id:'salatiga',name:'Salatiga'},{id:'semarang',name:'Semarang'}]
-  if(pilot) state.profiles[0].role='central_owner'
   let revision=0
   const seen=new Map(), changes=new Map()
   const subscriptions=[], channels=[]
@@ -25,15 +23,12 @@ function backend(pilot = false, incremental = false, scoped = false, summaries =
     auth:{getUser:async()=>({data:{user:{id:'user'}}})},
     from(table) {
       return {select() {
-        let branch, ids, after
+        let ids, after
         return {
-          eq(key,value) {
-            if(key==='branch_id'){branch=value;return this}
-            return {maybeSingle:async()=>({data:state.profiles[0]})}
-          },
+          eq() {return {maybeSingle:async()=>({data:state.profiles[0]})}},
           in(_key,value) {ids=value;return this},
           gt(_key,value) {after=value;return this},
-          order() {return {limit:async(limit)=>({data:structuredClone(state[table].filter(row=>(!branch||row.branch_id===branch)&&(!ids||ids.includes(row.id))&&(!after||row.id>after)).sort((a,b)=>a.id.localeCompare(b.id)).slice(0,limit))})}},
+          order() {return {limit:async(limit)=>({data:structuredClone(state[table].filter(row=>(!ids||ids.includes(row.id))&&(!after||row.id>after)).sort((a,b)=>a.id.localeCompare(b.id)).slice(0,limit))})}},
         }
       }}
     },
@@ -41,14 +36,14 @@ function backend(pilot = false, incremental = false, scoped = false, summaries =
       if(name==='printex_scoped_snapshot') {
         if(!scoped) return {error:{code:'PGRST202'}}
         const date=value=>String(value??'').slice(0,10)
-        const eligible=new Set(state.orders.filter(row=>(!args.p_branch||row.branch_id===args.p_branch)&&(
+        const eligible=new Set(state.orders.filter(row=>
           !row.archive_finalized_at || row.id===args.p_order || date(row.order_date)>=args.p_start&&date(row.order_date)<=args.p_end
-          || date(row.archive_finalized_at)>=args.p_start&&date(row.archive_finalized_at)<=args.p_end)).map(row=>row.id))
-        for(const event of state.process_history) if((!args.p_branch||event.branch_id===args.p_branch)&&date(event.occurred_at)>=args.p_start&&date(event.occurred_at)<=args.p_end) eligible.add(event.order_identity??event.order_id)
-        const rows=state.orders.filter(row=>eligible.has(row.id)&&(!args.p_branch||row.branch_id===args.p_branch))
+          || date(row.archive_finalized_at)>=args.p_start&&date(row.archive_finalized_at)<=args.p_end).map(row=>row.id))
+        for(const event of state.process_history) if(date(event.occurred_at)>=args.p_start&&date(event.occurred_at)<=args.p_end) eligible.add(event.order_identity??event.order_id)
+        const rows=state.orders.filter(row=>eligible.has(row.id))
         const customers=new Set(rows.map(row=>row.customer_id))
         const data={orders:rows,customers:state.customers.filter(row=>customers.has(row.id)),production_steps:state.production_steps,
-          process_history:state.process_history.filter(row=>eligible.has(row.order_identity??row.order_id)&&(!args.p_branch||row.branch_id===args.p_branch))}
+          process_history:state.process_history.filter(row=>eligible.has(row.order_identity??row.order_id))}
         for(const table of Object.keys(data)) if(args.p_changes!==null) data[table]=data[table].filter(row=>args.p_changes.some(change=>change.table===table&&change.id===row.id))
         const histories=data.process_history.filter(row=>!args.p_history_after||row.id>args.p_history_after).sort((a,b)=>a.id.localeCompare(b.id))
         data.process_history=histories.slice(0,5000)
@@ -64,14 +59,13 @@ function backend(pilot = false, incremental = false, scoped = false, summaries =
         for(const table of ['orders','customers','production_steps','process_history']) for(const row of state[table]) {
           const key=table+':'+row.id, value=JSON.stringify(row)
           current.set(key,value)
-          if(seen.get(key)!==value) changes.set(key,{table,id:row.id,revision:++revision,branch:row.branch_id})
+          if(seen.get(key)!==value) changes.set(key,{table,id:row.id,revision:++revision})
         }
-        for(const [key,value] of seen) if(!current.has(key)) {const row=JSON.parse(value);changes.set(key,{table:key.split(':')[0],id:row.id,revision:++revision,branch:row.branch_id})}
+        for(const [key,value] of seen) if(!current.has(key)) {const row=JSON.parse(value);changes.set(key,{table:key.split(':')[0],id:row.id,revision:++revision})}
         seen.clear();for(const [key,value] of current)seen.set(key,value)
-        return {data:{cursor:String(revision),changes:args.p_after===null?[]:[...changes.values()].filter(change=>change.revision>Number(args.p_after)&&(!args.p_branch||change.branch===args.p_branch||change.table==='production_steps'))}}
+        return {data:{cursor:String(revision),changes:args.p_after===null?[]:[...changes.values()].filter(change=>change.revision>Number(args.p_after))}}
       }
-      if(name==='printex_online_status')return {data:{schema_version:8,branches_enabled:pilot,daily_summaries_enabled:summaries,realtime_tables:Object.keys(state)}}
-      if(name==='printex_branch_context')return {data:{branches,central:state.profiles[0].role==='central_owner',branchId:state.profiles[0].branch_id}}
+      if(name==='printex_online_status')return {data:{schema_version:8,daily_summaries_enabled:summaries,realtime_tables:Object.keys(state)}}
       if (name === 'printex_claim_photo_cleanup') return { data: [...photos.keys()].filter(path => (!args.p_path || args.p_path === path) && !state.orders.some(order => order.photo_path === path)).map(path => ({ path })) }
       const row=state.orders.find(row=>row.id===args.p_order_id)
       if (name === 'printex_set_order_photo') {
@@ -79,8 +73,8 @@ function backend(pilot = false, incremental = false, scoped = false, summaries =
         row.photo_path = args.p_path; row.version++; emit(); return { error: null }
       }
       if(args.p_action==='create'){
-        state.customers.push({id:'customer',branch_id:args.p_data.branchId,name:args.p_data.customerName})
-        state.orders.push({id:args.p_order_id,branch_id:args.p_data.branchId,spk_code:'SPK-1100',customer_id:'customer',current_step_id:'0',production_type:'DTF',meter:1,customer_type:'regular',order_date:'2026-09-07',due_at:'2026-09-08',created_at:'2026-09-07T00:00:00Z',version:1})
+        state.customers.push({id:'customer',name:args.p_data.customerName})
+        state.orders.push({id:args.p_order_id,spk_code:'SPK-1100',customer_id:'customer',current_step_id:'0',production_type:'DTF',meter:1,customer_type:'regular',order_date:'2026-09-07',due_at:'2026-09-08',created_at:'2026-09-07T00:00:00Z',version:1})
       }else{
         if(row.version!==args.p_expected_version)return {error:{message:'Order sudah diubah perangkat lain',code:'40001'}}
         if (args.p_action === 'delete') state.orders.splice(state.orders.indexOf(row), 1)
@@ -116,7 +110,7 @@ function device(client) {
 async function waitFor(check){for(let i=0;i<100;i++){if(check())return;await new Promise(resolve=>setTimeout(resolve,5))}assert.fail('State did not synchronize')}
 
 test('scoped client avoids old archives, loads full historical details on demand and reuses unchanged data',async()=>{
- const api=backend(false,true,true),a=device(api.client)
+ const api=backend(true,true),a=device(api.client)
  for(let i=0;i<1000;i++) api.state.orders.push({id:'old-'+i,spk_code:'OLD-'+i,current_step_id:'6',version:1,production_type:'DTF',meter:1,order_date:'2020-01-01',archived_at:'2020-01-02T00:00:00Z',archive_finalized_at:'2020-01-02T00:00:00Z'})
  api.state.orders.push({id:'active',spk_code:'ACTIVE',current_step_id:'0',version:1,production_type:'DTF',meter:1,order_date:'2020-01-01'})
  api.state.process_history.push({id:'old-event',order_identity:'old-0',order_id:'old-0',step_id:'3',event_kind:'completed',occurred_at:'2020-01-02T00:00:00Z'})
@@ -139,7 +133,7 @@ test('scoped client avoids old archives, loads full historical details on demand
 })
 
 test('compact history restores exact destination entries for timing and report calculations',async()=>{
- const api=backend(false,true,true),a=device(api.client)
+ const api=backend(true,true),a=device(api.client)
  api.state.orders.push({id:'active',spk_code:'ACTIVE',current_step_id:'2',version:1,production_type:'DTF',meter:1,order_date:'2020-01-01'})
  api.state.process_history.push(
   {id:'initial',order_identity:'active',step_id:'0',event_kind:'entered',occurred_at:'2020-01-01T00:00:00Z'},
@@ -156,7 +150,7 @@ test('compact history restores exact destination entries for timing and report c
 })
 
 test('paged histories publish atomically and a failed later page can be retried without advancing sync',async()=>{
- const api=backend(false,true,true),a=device(api.client)
+ const api=backend(true,true),a=device(api.client)
  api.state.orders.push({id:'active',spk_code:'ACTIVE',current_step_id:'0',version:1,production_type:'DTF',meter:1,order_date:'2020-01-01'})
  for(let i=0;i<5002;i++) api.state.process_history.push({id:String(i).padStart(6,'0'),order_identity:'active',step_id:'3',event_kind:'entered',occurred_at:'2020-01-01T00:00:00Z'})
  const rpc=api.client.rpc
@@ -179,41 +173,37 @@ test('paged histories publish atomically and a failed later page can be retried 
  assert.equal(pages,2)
 })
 
-test('branch realtime scopes inserts/updates, ignores unrelated deletes, and rebuilds after access changes',async()=>{
- const b=backend(true,true);b.state.profiles[0].role='admin';b.state.profiles[0].branch_id='salatiga'
+test('realtime covers every business row and only the own profile, ignores unknown deletes, and keeps one channel per account',async()=>{
+ const b=backend(true);b.state.profiles[0].role='admin'
  const a=device(b.client);a.board.useOnlineConnection()
  await waitFor(()=>a.board.useOnlineConnection().realtime)
  let reads=0;const rpc=b.client.rpc;b.client.rpc=async(...args)=>{if(args[0]==='printex_sync_changes')reads++;return rpc(...args)}
  await new Promise(resolve=>setTimeout(resolve,350));reads=0
  const current=b.channels.at(-1)
  const subscriptions=b.subscriptions.filter(item=>item.channel===current)
- assert.equal(subscriptions.find(item=>item.filter.table==='orders'&&item.filter.event==='UPDATE').filter.filter,'branch_id=eq.salatiga')
+ assert.ok(subscriptions.some(item=>item.filter.table==='orders'&&item.filter.event==='*'&&!item.filter.filter))
  assert.equal(subscriptions.find(item=>item.filter.table==='profiles'&&item.filter.event==='UPDATE').filter.filter,'id=eq.user')
- const deletion=subscriptions.find(item=>item.filter.table==='orders'&&item.filter.event==='DELETE')
- deletion.callback({old:{id:'another-branch'}})
+ const deletion=subscriptions.find(item=>item.filter.table==='profiles'&&item.filter.event==='DELETE')
+ deletion.callback({old:{id:'unknown-order'}})
  await new Promise(resolve=>setTimeout(resolve,350));assert.equal(reads,0)
- b.state.profiles[0].role='central_owner';await a.board.refreshOnlineData()
- assert.equal(current.removed,true)
- assert.ok(b.subscriptions.some(item=>item.channel===b.channels.at(-1)&&item.filter.table==='orders'&&item.filter.event==='*'&&!item.filter.filter))
- b.state.profiles[0].role='admin'
- b.state.profiles[0].branch_id='salatiga'
- await a.board.refreshOnlineData()
- assert.equal(b.channels.length,3)
+ b.state.profiles[0].role='owner';await a.board.refreshOnlineData()
+ assert.ok(!current.removed,'A role change keeps the same channel')
+ assert.equal(b.channels.length,1)
 })
 
-test('a primary-key-only delete removes a cached branch order through incremental sync',async()=>{
- const b=backend(true,true);b.state.profiles[0].role='admin';b.state.profiles[0].branch_id='salatiga'
+test('a primary-key-only delete removes a cached order through incremental sync',async()=>{
+ const b=backend(true);b.state.profiles[0].role='admin'
  const a=device(b.client);a.board.useOnlineConnection()
  await waitFor(()=>a.board.useOnlineConnection().realtime)
  await a.board.addOrder({customerName:'Test',productionType:'DTF',meter:1,customerType:'regular',orderDate:'2026-10-01',dueDate:'2026-10-02',notes:''},'delete-me')
  assert.equal(a.board.useAllOrders().length,1)
  b.state.orders=[]
- b.subscriptions.find(item=>item.channel===b.channels.at(-1)&&item.filter.table==='orders'&&item.filter.event==='DELETE').callback({old:{id:'delete-me'}})
+ b.subscriptions.find(item=>item.channel===b.channels.at(-1)&&item.filter.table==='orders'&&item.filter.event==='*').callback({old:{id:'delete-me'}})
  await waitFor(()=>a.board.useAllOrders().length===0)
 })
 
 test('healthy realtime reduces polling, hidden tabs make no automatic reads and reopening catches up',async()=>{
- const b=backend(true,true),a=device(b.client);a.board.useOnlineConnection()
+ const b=backend(true),a=device(b.client);a.board.useOnlineConnection()
  await waitFor(()=>a.board.useOnlineConnection().realtime)
  await new Promise(resolve=>setTimeout(resolve,350))
  assert.deepEqual([...a.polls.values()].map(p=>p.delay),[300000])
@@ -348,6 +338,16 @@ test('old database permissions never enable the new UI',async()=>{
   assert.equal(api.state.orders.length,0)
 })
 
+test('a database still on the multi-branch schema explains the migration instead of a login error',async()=>{
+  const api=backend()
+  const rpc=api.client.rpc
+  api.client.rpc=(name,args)=>name==='printex_online_status'?Promise.resolve({data:{schema_version:8,branches_enabled:true,realtime_tables:Object.keys(api.state)}}):rpc(name,args)
+  const a=device(api.client)
+  a.board.useOnlineConnection()
+  await waitFor(()=>a.board.useOnlineConnection().state==='error')
+  assert.match(a.board.useOnlineConnection().error,/masih versi cabang.*supabase\/manual\/README\.md/)
+})
+
 
 test('a burst of realtime notifications shares one snapshot refresh', async () => {
   const api = backend(); let snapshots = 0;
@@ -390,32 +390,12 @@ test('finalizing archives removes photos and retries failed storage deletion wit
 })
 
 
-test('central branch switching scopes fetched orders and creation requires a selected branch',async()=>{
- const api=backend(true), a=device(api.client)
- a.board.useOnlineConnection()
- await waitFor(()=>a.board.useOnlineConnection().state==='ready')
- assert.equal(a.board.useOnlineConnection().central,true)
- const input={customerName:'Cabang',productionType:'DTF',meter:10,customerType:'regular',orderDate:'2026-09-25',dueDate:'2026-09-26',notes:''}
- await assert.rejects(()=>a.board.addOrder(input,'a'),/Pilih satu cabang/)
- await a.board.selectBranch('salatiga')
- await a.board.addOrder(input,'a')
- await a.board.selectBranch('semarang')
- assert.equal(a.board.useAllOrders().length,0)
- await a.board.addOrder(input,'b')
- assert.equal(a.board.useAllOrders()[0].branch_id,'semarang')
- await a.board.selectBranch(null)
- assert.equal(a.board.useAllOrders().length,2)
- await a.board.selectBranch('salatiga')
- assert.deepEqual(Array.from(a.board.useAllOrders(),o=>o.id),['a'])
-})
-
-test('incremental sync skips unchanged tables and merges edits, deletions and branch switches',async()=>{
- const api=backend(true,true),a=device(api.client),reads=[]
+test('incremental sync skips unchanged tables and merges edits and deletions',async()=>{
+ const api=backend(true),a=device(api.client),reads=[]
  const from=api.client.from
  api.client.from=table=>{reads.push(table);return from(table)}
  a.board.useOnlineConnection()
  await waitFor(()=>a.board.useOnlineConnection().state==='ready')
- await a.board.selectBranch('salatiga')
  const input={customerName:'Delta',productionType:'DTF',meter:1,customerType:'regular',orderDate:'2026-09-25',dueDate:'2026-09-26',notes:''}
  await a.board.addOrder(input,'delta')
  reads.length=0
@@ -427,16 +407,12 @@ test('incremental sync skips unchanged tables and merges edits, deletions and br
  await a.board.refreshOnlineData()
  assert.equal(a.board.useAllOrders()[0].meter,25)
  assert.deepEqual(reads,['profiles','orders'])
- await a.board.selectBranch('semarang')
- assert.equal(a.board.useAllOrders().length,0)
- await a.board.selectBranch('salatiga')
- assert.equal(a.board.useAllOrders()[0].meter,25)
  await a.board.deleteOrder('delta')
  assert.equal(a.board.useAllOrders().length,0)
 })
 
 test('failed incremental read does not advance cursor and retry recovers changes',async()=>{
- const api=backend(false,true),a=device(api.client)
+ const api=backend(true),a=device(api.client)
  a.board.useOnlineConnection()
  await waitFor(()=>a.board.useOnlineConnection().state==='ready')
  await a.board.addOrder({customerName:'Retry',productionType:'DTF',meter:1,customerType:'regular',orderDate:'2026-09-25',dueDate:'2026-09-26',notes:''},'retry')
@@ -451,7 +427,7 @@ test('failed incremental read does not advance cursor and retry recovers changes
 })
 
 test('initial keyset pagination loads more than 1000 rows without losing boundary rows',async()=>{
- const api=backend(false,true),a=device(api.client)
+ const api=backend(true),a=device(api.client)
  for(let i=0;i<1105;i++) api.state.orders.push({id:String(i).padStart(6,'0'),spk_code:'SPK-'+i,current_step_id:'0',version:1,production_type:'DTF',meter:1})
  a.board.useOnlineConnection()
  await waitFor(()=>a.board.useOnlineConnection().state==='ready')
@@ -459,54 +435,8 @@ test('initial keyset pagination loads more than 1000 rows without losing boundar
  assert.equal(new Set(a.board.useAllOrders().map(row=>row.id)).size,1105)
 })
 
-test('unchanged branch metadata keeps its reference, while renamed branches refresh', async () => {
- const api=backend(true,true),a=device(api.client)
- a.board.useOnlineConnection()
- await waitFor(()=>a.board.useOnlineConnection().state==='ready')
- await a.board.refreshOnlineData()
- const branches=a.board.useOnlineConnection().branches
- const rpc=api.client.rpc
- api.client.rpc=async(name,args)=>{
-  const result=await rpc(name,args)
-  if(name==='printex_branch_context') result.data.branches=structuredClone(result.data.branches)
-  return result
- }
- await a.board.refreshOnlineData()
- assert.equal(a.board.useOnlineConnection().branches,branches)
- api.client.rpc=async(name,args)=>{
-  const result=await rpc(name,args)
-  if(name==='printex_branch_context') result.data.branches=result.data.branches.map(branch=>({...branch,name:branch.name+' Baru'}))
-  return result
- }
- await a.board.refreshOnlineData()
- assert.notEqual(a.board.useOnlineConnection().branches,branches)
- assert.equal(a.board.useOnlineConnection().branches[0].name,'Salatiga Baru')
-})
-
-test('an older branch response cannot reset a newer branch selection', async () => {
- const api=backend(true,true),a=device(api.client)
- a.board.useOnlineConnection()
- await waitFor(()=>a.board.useOnlineConnection().state==='ready')
- await a.board.refreshOnlineData()
- const rpc=api.client.rpc
- let release, intercepted=false
- api.client.rpc=async(name,args)=>{
-  if(name==='printex_branch_context'&&!intercepted) {
-   intercepted=true
-   return new Promise(resolve=>{release=()=>resolve({data:{branches:[{id:'salatiga',name:'Salatiga'}],central:true,branchId:null}})})
-  }
-  return rpc(name,args)
- }
- const refresh=a.board.refreshOnlineData()
- await waitFor(()=>!!release)
- const selection=a.board.selectBranch('semarang')
- release()
- await Promise.all([refresh,selection])
- assert.equal(a.board.useOnlineConnection().branchId,'semarang')
- assert.equal(a.board.useOnlineConnection().state,'ready')
-})
 test('incremental updates retain unaffected order objects and history arrays',async()=>{
- const api=backend(false,true),a=device(api.client)
+ const api=backend(true),a=device(api.client)
  for(const id of ['a','b'])api.state.orders.push({id,spk_code:id,current_step_id:'0',version:1,production_type:'DTF',meter:1})
  a.board.useOnlineConnection()
  await waitFor(()=>a.board.useOnlineConnection().state==='ready')
@@ -525,7 +455,7 @@ test('incremental updates retain unaffected order objects and history arrays',as
  assert.notEqual(a.board.useProcessHistory(),history)
 })
 test('incremental capability recovers after migration becomes available without page reload',async()=>{
- const api=backend(false,true),a=device(api.client),rpc=api.client.rpc
+ const api=backend(true),a=device(api.client),rpc=api.client.rpc
  let installed=false
  api.client.rpc=async(name,args)=>name==='printex_sync_changes'&&!installed?{error:{code:'PGRST202'}}:rpc(name,args)
  a.board.useOnlineConnection()
@@ -541,8 +471,8 @@ test('incremental capability recovers after migration becomes available without 
 
 
 test('saved reports and settings avoid raw snapshots; returning to board restores live data',async()=>{
- const api=backend(true,true,true,true)
- api.state.orders.push({id:'active',branch_id:'salatiga',spk_code:'ACTIVE',current_step_id:'0',version:1,production_type:'DTF',meter:1,order_date:'2026-10-02'})
+ const api=backend(true,true,true)
+ api.state.orders.push({id:'active',spk_code:'ACTIVE',current_step_id:'0',version:1,production_type:'DTF',meter:1,order_date:'2026-10-02'})
  let scopedReads=0
  const original=api.client.rpc.bind(api.client)
  api.client.rpc=(name,args)=>{if(name==='printex_scoped_snapshot')scopedReads++;return original(name,args)}

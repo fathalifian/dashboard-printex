@@ -13,7 +13,7 @@ const navigation = [
   { name: 'Board Produksi', href: '/schedule', icon: Columns3 },
   { name: 'Laporan Proses', href: '/reports', icon: ChartNoAxesCombined },
   { name: 'Laporan Arsip', href: '/archives', icon: Archive },
-  { name: 'Pengaturan', href: '/settings', icon: Settings },
+  { name: 'Pusat Admin', href: '/admin', icon: Settings },
 ]
 
 export default function Sidebar({ collapsed }: { collapsed: boolean }) {

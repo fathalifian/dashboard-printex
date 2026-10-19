@@ -1,20 +1,16 @@
 'use client'
 
 import { useMemo, useState } from 'react'
-import ReportStatus from '@/components/report-status'
+import ReportStatus from '@/components/reports/report-status'
 import { useDailySummary, useReportDetails, total } from '@/lib/report-summaries'
-import ReportRooms from '@/components/report-rooms'
-import DateRangeFilter, { todayRange, type DateRange } from '@/components/date-range-filter'
+import DateRangeFilter, { todayRange, type DateRange } from '@/components/ui/date-range-filter'
 import Link from 'next/link'
 import { Search } from 'lucide-react'
-import { useAllOrders, useOnlineConnection } from '@/lib/production-board'
+import { useAllOrders } from '@/lib/production-board'
 import { jakartaDate } from '@/lib/process-metrics'
 
 function ArchiveDetail({ range, onRangeChange }: { range: DateRange; onRangeChange: (r: DateRange) => void }) {
   const allOrders = useAllOrders()
-  const connection = useOnlineConnection()
-  const branchMap = useMemo(() => new Map((connection.branches ?? []).map(b => [b.id, b.name])), [connection.branches])
-  const branchName = (id?: string) => (id ? branchMap.get(id) : undefined) ?? 'Belum tercatat'
   const orders = useMemo(() => allOrders.filter(order => order.board_stage === 'archive' && order.archive?.finalizedAt), [allOrders])
   const [query, setQuery] = useState('')
   const [page, setPage] = useState(1)
@@ -47,7 +43,7 @@ function ArchiveDetail({ range, onRangeChange }: { range: DateRange; onRangeChan
 
   if(saved.enabled&&(saved.loading||saved.error))return <div className="space-y-5"><DateRangeFilter value={range} onChange={onRangeChange}/><ReportStatus report={saved}/></div>
   return (
-    <div className="mx-auto max-w-7xl space-y-5">
+    <div className="space-y-5">
       <ReportStatus report={saved} />
       <div className="grid gap-4 sm:grid-cols-2">
         <section className="rounded-xl border border-slate-200 bg-white p-5">
@@ -75,12 +71,11 @@ function ArchiveDetail({ range, onRangeChange }: { range: DateRange; onRangeChan
         <div className="overflow-x-auto">
           <table className="w-full whitespace-nowrap text-left text-sm">
             <thead className="bg-slate-50 text-xs text-slate-500">
-              <tr>{['Cabang', 'Order', 'Customer', 'Produksi', 'Tanggal order', 'Selesai dari arsip', 'Penyerahan', 'Detail'].map(title => <th key={title} className="px-4 py-3 font-medium">{title}</th>)}</tr>
+              <tr>{['Order', 'Customer', 'Produksi', 'Tanggal order', 'Selesai dari arsip', 'Penyerahan', 'Detail'].map(title => <th key={title} className="px-4 py-3 font-medium">{title}</th>)}</tr>
             </thead>
             <tbody>
               {pagedOrders.map(order => (
                 <tr key={order.id} className="border-t border-slate-100 text-slate-600">
-                  <td className="px-4 py-4">{branchName(order.branch_id)}</td>
                   <td className="px-4 py-4 font-semibold text-slate-900">{order.spk_code}</td>
                   <td className="px-4 py-4">{order.customer.name}</td>
                   <td className="px-4 py-4">{order.production_type} · {order.meter} m</td>
@@ -112,8 +107,9 @@ function ArchiveDetail({ range, onRangeChange }: { range: DateRange; onRangeChan
 export default function ArchivesPage() {
   const [range, setRange] = useState(todayRange)
   return (
-    <ReportRooms kind="archive" range={range} onRangeChange={setRange}>
+    <div className="space-y-5">
+      <h2 className="page-title">Laporan arsip</h2>
       <ArchiveDetail range={range} onRangeChange={setRange} />
-    </ReportRooms>
+    </div>
   )
 }

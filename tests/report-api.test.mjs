@@ -24,7 +24,7 @@ test('report API accepts only bounded, real dates and allowlisted RPC/filter par
     { args: { p_start: '2026-09-02', p_end: '2026-09-01' } },
     { rpc: 'printex_report_details' },
     { args: { ...request().args, p_limit: 201 } },
-    { args: { ...request().args, p_branch: 'not-a-uuid' } },
+    { args: { ...request().args, p_branch: '11111111-1111-4111-8111-111111111111' } },
     { args: { ...request().args, p_search: 'x'.repeat(201) } },
     { args: { ...request().args, injected: true } },
   ]) assert.throws(() => request(input))
@@ -71,15 +71,13 @@ test('optional Redis failures fall back and activate a short circuit breaker', a
 })
 
 function service() {
-  const branch = '11111111-1111-4111-8111-111111111111'
-  const other = '22222222-2222-4222-8222-222222222222'
-  const state = { user: 'owner-a', role: 'owner', active: true, branches: [branch], reads: 0, pending: false }
+  const state = { user: 'owner-a', role: 'owner', active: true, reads: 0, pending: false }
   const client = {
     auth: { getUser: async () => ({ data: { user: state.user ? { id: state.user } : null } }) },
     from: () => ({ select: () => ({ eq: () => ({ single: async () => ({ data: { role: state.role, is_active: state.active } }) }) }) }),
-    rpc(name) {
-      const data = name === 'printex_branch_context' ? { branches: state.branches.map(id => ({ id })), central: false } :
-        (state.reads++, { rows: [{ branchId: state.branches[0], count: state.reads }], pending: state.pending, asOf: new Date().toISOString() })
+    rpc() {
+      state.reads++
+      const data = { rows: [{ count: state.reads }], pending: state.pending, asOf: new Date().toISOString() }
       return { abortSignal: async () => ({ data }) }
     },
   }
@@ -88,16 +86,16 @@ function service() {
     '@/lib/access-control': compile('src/lib/access-control.ts'),
     './report-cache': { createReportCache: cacheModule.createReportCache, createQueryGate: cacheModule.createQueryGate, redisCommand: async () => null },
   })
-  return { api, state, branch, other }
+  return { api, state }
 }
 
-test('cached reports recheck identity, account activity, role and branch membership', async () => {
-  const { api, state, branch, other } = service()
-  const input = request({ args: { ...request().args, p_branch: branch } })
+test('cached reports recheck identity, account activity and role', async () => {
+  const { api, state } = service()
+  const input = request()
   await api.readReport(input); await api.readReport(input); assert.equal(state.reads, 1)
   state.active = false; await assert.rejects(api.readReport(input), error => error.status === 403)
-  state.active = true; state.branches = [other]; await assert.rejects(api.readReport(input), error => error.status === 403)
-  state.branches = [branch]; state.user = 'owner-b'; await api.readReport(input); assert.equal(state.reads, 2)
+  state.active = true; state.role = 'central_owner'; await assert.rejects(api.readReport(input), error => error.status === 403)
+  state.role = 'owner'; state.user = 'owner-b'; await api.readReport(input); assert.equal(state.reads, 2)
   state.user = null; await assert.rejects(api.readReport(input), error => error.status === 401)
 })
 

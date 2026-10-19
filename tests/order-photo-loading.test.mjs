@@ -23,7 +23,7 @@ test('photo signing starts on visibility, pauses offscreen/hidden and reuses cac
   '@/lib/production-board':{},'@/lib/order-photo':{},
   '@/lib/order-photo-url':{getOrderPhotoUrl:path=>cache.get(path),invalidateOrderPhotoUrl:path=>cache.invalidate(path)}}
  const exports={}
- runInNewContext(compile('src/components/order-photo.tsx'),{exports,require:name=>dependencies[name],document,window,Date,
+ runInNewContext(compile('src/components/orders/order-photo.tsx'),{exports,require:name=>dependencies[name],document,window,Date,
   IntersectionObserver:class{constructor(callback){observer=callback}observe(){}disconnect(){}}})
  const render=()=>{cursor=0;const tree=exports.default({orderId:'order',spkCode:'SPK',path:'a.png',editable:false});tree.props.ref.current={};effects.splice(0).forEach(fn=>fn());return tree}
  const tick=()=>new Promise(resolve=>setTimeout(resolve,0))

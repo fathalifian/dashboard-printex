@@ -1,3 +1,3 @@
 'use client'
 
-export { default } from '@/components/error-recovery'
+export { default } from '@/components/ui/error-recovery'

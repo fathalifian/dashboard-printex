@@ -1,5 +1,7 @@
 # Audit pembersihan proyek — 3 Oktober 2026
 
+> **Pembaruan 18 Oktober 2026 — satu lokasi produksi.** Struktur multi-cabang dihapus seluruhnya: tabel dan kolom cabang, peran Owner Pusat, pemilih cabang, menu Cabang, ruang laporan per cabang, dan board semua cabang. Database dibangun dari `supabase/SETUP.sql` (migrasi 0001–0034). File `branch-migrations/`, `report-migrations/`, `pilot/`, `maintenance/`, `UPGRADE_BRANCHES.sql`, `SETUP_ONLINE.sql`, serta skrip `build-branch-upgrade`, `compact-database`, dan `report-scheduler` sudah dihapus; isinya tetap ada di riwayat git. Daftar di bawah adalah catatan audit 3 Oktober dan dapat menyebut file yang sudah tidak ada.
+
 Audit mencakup route dan layout Next.js, komponen termasuk dynamic import, helper dan ekspor TypeScript, CSS, aset publik, dependensi npm, tes, CI, skrip operasional, dokumentasi, serta rantai migrasi Supabase. Panduan struktur proyek dan CSS dari versi Next.js terpasang dibaca sebelum perubahan.
 
 ## Yang dibersihkan
@@ -22,3 +24,22 @@ Referensi desain awal tetap disimpan sebagai konteks bisnis, dengan penanda bahw
 ## Pemeriksaan
 
 `npm run check` berhasil: paket migrasi sesuai sumber, ESLint tanpa error, TypeScript lolos, seluruh 167 tes lulus tanpa skip, dan build produksi berhasil menghasilkan seluruh route. Pemeriksaan awal juga menjalankan TypeScript dengan `--noUnusedLocals --noUnusedParameters` tanpa temuan. ESLint masih memiliki satu warning navigasi pada `src/components/layout/online-status.tsx`, yang sudah ada sebelum pembersihan.
+
+# Pembersihan file uji coba — 14 Oktober 2026
+
+Komponen dikelompokkan per fitur (`ui/`, `orders/`, `production/`, `reports/`, `settings/`, `layout/`), dan referensi desain dipindah ke `docs/reference/`.
+
+## Dihapus (tersedia di riwayat git, commit `0fc26c9`)
+
+- Data demo/simulasi: `supabase/RESET_20_ORDERS.sql`, `RESET_DEMO_WEEK.sql`, `RESET_DEMO_MONTH.sql`, `scripts/execute-demo-*.mjs`, `verify-demo-*.mjs`, `verify-live-demo-month.mjs`, `lib/validate-demo-month.mjs`, `add-demo-photos.mjs`, `docs/demo-month-checklist.md`.
+- Aktivasi sekali jalan yang sudah dieksekusi di produksi (1–2 Oktober 2026): `activate-scoped-loading`, `verify-scoped-loading`, `activate-compact-transitions`, `activate-daily-summaries`, `remove-unused-archive-history`. Migrasinya tetap ada dan termasuk dalam `UPGRADE_BRANCHES.sql`.
+- Alat pilot/one-off: `create-pilot-accounts`, `provision-official-accounts`, `check-supabase` (skema lama), `audit-order-residue`, serta `supabase/REPAIR_ARCHIVE_PHOTOS.sql` (cukup jalankan ulang migrasi 0015, 0016, 0019).
+- Dua tes yang hanya menguji file reset/repair tersebut.
+
+## Dipertahankan
+
+Semua migrasi (`migrations/`, `branch-migrations/`, `report-migrations/`), `UPGRADE_BRANCHES.sql`, `SETUP_ONLINE.sql` + `ACTIVATE_ADMIN.sql` (jalur instalasi), `pilot/` (dipakai tes untuk mereproduksi riwayat skema produksi sebelum menguji upgrade), `jobs/`, `maintenance/`, dan skrip `build-branch-upgrade`, `audit-database-size`, `compact-database`, `report-scheduler`.
+
+## Persiapan go-live — 14 Oktober 2026
+
+Folder lokal `build/` (skrip uji coba, laporan audit, dan backup database 1–2 Oktober, ±557 MB) dihapus. Data simulasi di database produksi dikosongkan dengan SQL reset sekali jalan yang diuji lebih dulu pada skema lokal; akun, cabang, pengaturan, shortcut stok, dan tahapan produksi dipertahankan.

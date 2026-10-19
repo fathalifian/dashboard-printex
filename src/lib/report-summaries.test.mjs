@@ -7,7 +7,7 @@ import ts from 'typescript'
 const require=createRequire(import.meta.url)
 const codes={incoming:'ORDER_IN',design:'DESIGN',design_done:'DESIGN_DONE',printing:'PRINTING',press:'PRESS',done:'DONE'}
 function setup(){
- const status={state:'ready',profile:{id:'owner',role:'central_owner'},branchId:null,branches:[{id:'a'},{id:'b'}],reportSummariesEnabled:true}
+ const status={state:'ready',profile:{id:'owner',role:'owner'},reportSummariesEnabled:true}
  const calls=[];const effects=[];let reply
  const exports={}
  const js=ts.transpileModule(readFileSync(new URL('./report-summaries.ts',import.meta.url),'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText
@@ -22,24 +22,23 @@ function setup(){
 }
 const flush=async()=>{await new Promise(resolve=>setImmediate(resolve))}
 
-test('saved report readers deduplicate dashboard cards and keep dates and branch identities isolated',async()=>{
+test('saved report readers deduplicate dashboard cards and keep dates and account identities isolated',async()=>{
  const {lib,status,calls,effects,respond}=setup()
  lib.useDailySummary('2026-09-01','2026-09-01')
  lib.useDailySummary('2026-09-01','2026-09-01')
  effects.splice(0).forEach(fn=>fn())
  assert.equal(calls.length,1)
  assert.equal(calls[0].name,'printex_daily_report')
- respond({rows:[{day:'2026-09-01',branchId:'a',metric:'intake',dimension:'',count:3,meter:0,milliseconds:0}],pending:false})
+ respond({rows:[{day:'2026-09-01',metric:'intake',dimension:'',count:3,meter:0,milliseconds:0}],pending:false})
  await flush()
  const saved=lib.useDailySummary('2026-09-01','2026-09-01')
  assert.equal(saved.loading,false)
  assert.equal(saved.rows[0].count,3)
  effects.splice(0).forEach(fn=>fn())
  assert.equal(calls.length,1)
- status.branchId='b'
- assert.equal(lib.useDailySummary('2026-09-01','2026-09-01').rows.length,0)
+ assert.equal(lib.useDailySummary('2026-09-02','2026-09-02').rows.length,0,'Another period is never served from a cached day')
  effects.splice(0).forEach(fn=>fn())
- assert.equal(calls[1].args.p_branch,'b')
+ assert.deepEqual(calls[1].args,{p_start:'2026-09-02',p_end:'2026-09-02'})
  respond({rows:[],pending:false});await flush()
  status.profile={id:'other',role:'admin'}
  assert.equal(lib.useDailySummary('2026-09-01','2026-09-01').loading,true)
@@ -55,16 +54,16 @@ test('pending or failed summaries never publish partial counts as complete',asyn
  respond({rows:[],pending:false});await flush()
  assert.equal(lib.useDailySummary('2026-09-01','2026-09-02').error,'')
 })
-test('stored dates add across branches and periods, retain empty chart days and sum duration weights',()=>{
+test('stored dates add across days and periods, retain empty chart days and sum duration weights',()=>{
  const {lib}=setup()
  const rows=[
-  {day:'2026-09-01',branchId:'a',metric:'output',dimension:'dtf',count:2,meter:100,milliseconds:0},
-  {day:'2026-09-02',branchId:'b',metric:'output',dimension:'dtf',count:1,meter:20,milliseconds:0},
-  {day:'2026-09-01',branchId:'a',metric:'timing',dimension:'PRINTING',count:2,meter:0,milliseconds:7200000},
-  {day:'2026-09-02',branchId:'b',metric:'timing',dimension:'PRINTING',count:1,meter:0,milliseconds:1800000},
+  {day:'2026-09-01',metric:'output',dimension:'dtf',count:2,meter:100,milliseconds:0},
+  {day:'2026-09-02',metric:'output',dimension:'dtf',count:1,meter:20,milliseconds:0},
+  {day:'2026-09-01',metric:'timing',dimension:'PRINTING',count:2,meter:0,milliseconds:7200000},
+  {day:'2026-09-02',metric:'timing',dimension:'PRINTING',count:1,meter:0,milliseconds:1800000},
  ]
  assert.equal(lib.storedOutput(rows).dtf.meter,120)
- assert.equal(lib.storedOutput(rows,'b').dtf.count,1)
+ assert.equal(lib.storedOutput(rows,'2026-09-02').dtf.count,1)
  const trend=lib.storedTrend(rows,'2026-09-01','2026-09-03')
  assert.equal(trend.length,3)
  assert.equal(trend[2].dtf.count,0)

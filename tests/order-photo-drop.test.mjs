@@ -12,11 +12,12 @@ function compile(file, dependencies = {}) {
 const photo = compile('src/lib/order-photo.ts')
 const drop = compile('src/lib/order-photo-drop.ts', { './order-photo': photo })
 const access = compile('src/lib/access-control.ts')
+const machineLib = compile('src/lib/production-machines.ts')
 const image = { type: 'image/jpeg', size: 1024, name: 'photo.jpg' }
 const tick = () => new Promise(resolve => setTimeout(resolve, 0))
 
-function harness({ role = 'owner', stage = 'done', busy = false, fail = false } = {}) {
-  const state = [], uploads = [], moves = []
+function harness({ role = 'owner', stage = 'done', busy = false, fail = false, machines = null, productionType = 'DTF' } = {}) {
+  const state = [], uploads = [], moves = [], assignments = []
   let cursor = 0
   const jsx = (type, props) => ({ type, props })
   const react = {
@@ -26,13 +27,18 @@ function harness({ role = 'owner', stage = 'done', busy = false, fail = false } 
   }
   const Page = compile('src/app/(dashboard)/schedule/page.tsx', {
     react, 'react/jsx-runtime': { jsx, jsxs: jsx }, 'next/link': { default: 'Link' }, 'lucide-react': {},
-    '@/components/production-timers': { OrderTimer: 'OrderTimer' },
-    '@/components/stock-shortcuts': { default: 'StockShortcuts' },
-    '@/lib/order-photo-drop': drop, '@/lib/access-control': access,
+    '@/components/production/production-timers': { OrderTimer: 'OrderTimer' },
+    '@/components/production/stock-shortcuts': { default: 'StockShortcuts' },
+    // Print runs (migration 0014) are not part of these drop and machine tests.
+    '@/lib/production-records': { useOpenRuns: () => ({ loaded: true, runs: new Map(), available: false }) },
+    '@/components/production/run-controls': { default: 'RunControls' },
+    '@/lib/order-photo-drop': drop, '@/lib/access-control': access, '@/lib/production-machines': machineLib,
+    '@/lib/machines-store': { useMachines: () => machines ? { machines, loaded: true, available: true } : { machines: [], loaded: true, available: false } },
     '@/lib/utils': { formatDueDate: () => 'Hari ini', isOverdue: () => false, cn: (...values) => values.filter(Boolean).join(' ') },
     '@/lib/production-board': {
-      useProductionOrders: () => [{ id: 'order1', spk_code: 'SPK-1', customer: { name: 'Customer' }, production_type: 'DTF', meter: 3, customer_type: 'regular', board_stage: stage }],
+      useProductionOrders: () => [{ id: 'order1', spk_code: 'SPK-1', customer: { name: 'Customer' }, production_type: productionType, meter: 3, customer_type: 'regular', board_stage: stage }],
       useOnlineConnection: () => ({ profile: { role }, state: 'ready', busy }),
+      setPrintMachine: async (id, machineId, move) => { assignments.push({ id, machineId, move }); return true },
       saveOrderPhoto: async (id, file) => { uploads.push({ id, file }); if (fail) throw new Error('Gagal menyimpan foto') },
       canMoveOrder: () => true,
       moveOrderToStage: async (id, stage) => { moves.push({ id, stage }); return true },
@@ -54,7 +60,7 @@ function harness({ role = 'owner', stage = 'done', busy = false, fail = false } 
   }
   const card = () => find(render(), node => node.type === 'article')
   const notice = () => find(render(), node => node.props?.role === 'status')?.props.children
-  return { render, find, card, notice, uploads, moves }
+  return { render, find, card, notice, uploads, moves, assignments }
 }
 function event(files = [image], types = ['Files']) {
   return { dataTransfer: { files, types, getData: () => 'order1' }, prevented: false, stopped: false,
@@ -111,4 +117,41 @@ test('upload failure is visible and another drop can retry', async () => {
   assert.equal(board.notice(), 'Gagal menyimpan foto')
   board.card().props.onDrop(event()); await tick()
   assert.equal(board.uploads.length, 2)
+})
+
+const productionMachines = [
+  { id: 'f1', kind: 'fedar', name: 'Fedar 1' }, { id: 'f2', kind: 'fedar', name: 'Fedar 2' },
+  { id: 'd1', kind: 'dtf', name: 'DTF 1' }, { id: 'p1', kind: 'press', name: 'Press 1' },
+]
+async function dropOnPrinting(board) {
+  const printing = board.find(board.render(), node => node.props?.['data-board-stage'] === 'printing')
+  board.find(printing, node => node.type === 'div' && node.props?.onDrop).props.onDrop(event([], ['text/plain'])); await tick()
+}
+
+test('entering Proses Sublim records the machine: DTF goes straight to its only DTF machine', async () => {
+  const board = harness({ machines: productionMachines, productionType: 'DTF', stage: 'design_done' })
+  await dropOnPrinting(board)
+  assert.deepEqual(board.assignments, [{ id: 'order1', machineId: 'd1', move: true }])
+  assert.equal(board.moves.length, 0, 'The plain move is replaced by the atomic move-with-machine')
+  assert.match(board.notice(), /DTF 1/)
+})
+
+test('non-DTF material must choose between Fedar machines only', async () => {
+  const board = harness({ machines: productionMachines, productionType: 'Jersey', stage: 'design_done' })
+  await dropOnPrinting(board)
+  assert.equal(board.assignments.length, 0, 'Nothing is saved before a machine is chosen')
+  const dialog = () => board.find(board.render(), node => node.props?.['aria-labelledby'] === 'print-machine-title')
+  const radios = () => { const found = []; (function walk(node) { if (!node || typeof node !== 'object') return; if (node.type === 'input' && node.props.type === 'radio') found.push(node); [node.props?.children].flat(Infinity).forEach(walk) })(dialog()); return found }
+  assert.deepEqual(radios().map(radio => radio.props.value), ['f1', 'f2'])
+  radios()[1].props.onChange()
+  await board.find(dialog(), node => node.type === 'form').props.onSubmit({ preventDefault() {} })
+  assert.deepEqual(board.assignments, [{ id: 'order1', machineId: 'f2', move: true }])
+  assert.equal(dialog(), null)
+})
+
+test('without an eligible machine the board explains how to add one', async () => {
+  const board = harness({ machines: productionMachines.filter(machine => machine.kind !== 'dtf'), productionType: 'DTF', stage: 'design_done' })
+  await dropOnPrinting(board)
+  assert.equal(board.assignments.length + board.moves.length, 0)
+  assert.match(board.notice(), /Belum ada mesin DTF/)
 })

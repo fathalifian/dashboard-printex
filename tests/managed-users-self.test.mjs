@@ -13,46 +13,44 @@ function compile(file, dependencies = {}) {
 const access = compile('src/lib/access-control.ts')
 function setup(role, { duplicate = false, active = true } = {}) {
   let lists = 0
-  const profile = { full_name: 'Saya', role, is_active: active, branch_id: role === 'central_owner' ? null : 'branch-a' }
+  const profile = { full_name: 'Saya', role, is_active: active }
   const client = {
     auth: { getUser: async () => ({ data: { user: { id: 'self', email: 'self@example.com' } } }) },
-    from: () => ({ select: () => ({
-      data: [{ id: 'other', branch_id: 'branch-a' }, { id: 'self', branch_id: profile.branch_id }],
-      eq: () => ({ single: async () => ({ data: profile }) }),
-    }) }),
+    from: () => ({ select: () => ({ eq: () => ({ single: async () => ({ data: profile }) }) }) }),
     rpc: async name => {
-      if (name === 'printex_online_status') return { data: { schema_version: access.ACCESS_SCHEMA_VERSION, branches_enabled: true } }
+      if (name === 'printex_online_status') return { data: { schema_version: access.ACCESS_SCHEMA_VERSION } }
       assert.equal(name, 'printex_list_users')
       lists++
       return { data: [{ id: 'other', role: 'operator' }, ...(duplicate ? [{ id: 'self', ...profile }] : [])] }
     },
   }
-  return { ...compile('src/app/(dashboard)/settings/users/actions.ts', {
+  return { ...compile('src/app/(admin)/admin/_actions/users.ts', {
     zod: { z }, '@/lib/access-control': access,
     '@/lib/supabase/server': { createClient: async () => client },
     '@/lib/supabase/admin': {},
   }), lists: () => lists }
 }
 
-test('authorized roles see their own account once, even when the RPC omits it or branch filters exclude it', async () => {
-  for (const role of ['central_owner', 'owner', 'admin']) {
+test('authorized roles see their own account once, even when the RPC omits or repeats it', async () => {
+  for (const role of ['owner', 'admin']) {
     for (const duplicate of [true, false]) {
       const api = setup(role, { duplicate })
-      const result = await api.listManagedUsers('branch-b')
+      const result = await api.listManagedUsers()
       assert.equal(result.error, '')
       assert.equal(result.currentId, 'self')
-      assert.deepEqual(result.users.map(user => user.id), ['self'])
-      assert.equal(result.users[0].role, role)
-      assert.equal(result.users[0].email, 'self@example.com')
+      assert.deepEqual(result.users.map(user => user.id), access.canManageUsers(role) ? ['other', 'self'] : ['self'])
+      const self = result.users.find(user => user.id === 'self')
+      assert.equal(self.role, role)
+      assert.equal(self.email, 'self@example.com')
       if (!access.canManageUsers(role)) assert.equal(api.lists(), 0)
     }
   }
 })
 
 test('operators cannot list managed accounts, including through a direct server action', async () => {
-  for (const role of ['operator', 'staff']) {
+  for (const role of ['operator', 'staff', 'central_owner']) {
     const api = setup(role)
-    const result = await api.listManagedUsers('branch-a')
+    const result = await api.listManagedUsers()
     assert.ok(result.error)
     assert.deepEqual(result.users, [])
     assert.equal(api.lists(), 0)

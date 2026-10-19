@@ -5,12 +5,15 @@ type ProductivityProcess = 'sublim' | 'dtf' | 'press'
 export type ProductivityPaperWidth = 'all' | '1.2' | '1.6' | '1.8'
 export type ProductivityOrder = TimedOrder & {
   spk_code: string
+  print_machine_id?: string | null
   production_type: string
   paper_width?: string | null
   meter: number
 }
 type ProductivityRow = {
   orderId: string
+  /** Print machine for Sublim/DTF rows; Press rows are not assigned per order. */
+  machineId: string | null
   spkCode: string
   productionType: string
   paperWidth: string | null
@@ -78,13 +81,15 @@ export function productivityRows(
     }, 0)
     const timing = orderTiming(order, events, snapshotTime)
     for (const stage of ['printing', 'press'] as const) {
+      // DTF that is pressed uses its own press line, which is not part of the dashboard.
+      if (stage === 'press' && isDTF) continue
       const duration = timing.stages[stage]
       if (!duration.visited || duration.running || !duration.lastExit) continue
       const day = jakartaDate(duration.lastExit)
       if (day < start || day > end) continue
       const process = stage === 'press' ? 'press' : isDTF ? 'dtf' : 'sublim'
       result[process].push({
-        orderId: order.id, spkCode: order.spk_code, productionType: order.production_type,
+        orderId: order.id, machineId: stage === 'press' ? null : order.print_machine_id ?? null, spkCode: order.spk_code, productionType: order.production_type,
         paperWidth: width, process, meter: nonnegative(order.meter),
         durationMilliseconds: nonnegative(duration.milliseconds),
       })

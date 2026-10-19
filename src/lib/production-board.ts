@@ -1,7 +1,6 @@
 'use client'
 
 import { useEffect, useRef, useSyncExternalStore } from 'react'
-import { recordRoomNavigation } from '@/lib/room-navigation'
 import { createClient } from '@/lib/supabase/client'
 import { jakartaDate, PROCESS_STAGES, type ProcessEvent } from '@/lib/process-metrics'
 import { ACCESS_SCHEMA_VERSION, canManageOrders, canMoveBetweenStages, normalizeRole } from '@/lib/access-control'
@@ -21,27 +20,24 @@ export const BOARD_STAGE_META: Record<BoardStageId, {code:string;name:string;col
 export type OrderEditInput = {spkCode:string;customerName:string;customerPhone?:string;productionType:string;meter:number;paperWidth?:string|null;customerType:string;orderDate:string;dueDate:string;notes:string}
 type NewOrderInput = Omit<OrderEditInput,'spkCode'> & {spkCode?:string}
 export type BoardOrder = {
-  id:string;branch_id?:string;spk_code:string;customer:{name:string;phone:string};production_type:string;meter:number;paper_width?:string|null;customer_type:string;
+  id:string;spk_code:string;customer:{name:string;phone:string};production_type:string;meter:number;paper_width?:string|null;customer_type:string;
   order_state:string;current_step:{code:string;name:string};order_date:string;due_at:string;notes:string;created_at:string;
-  board_stage:BoardStageId;color_token:string;version:number;photo_path:string|null;archive:{archivedAt:string;deliveryMethod:DeliveryMethod;finalizedAt?:string}|null
+  board_stage:BoardStageId;color_token:string;version:number;photo_path:string|null;print_machine_id?:string|null;archive:{archivedAt:string;deliveryMethod:DeliveryMethod;finalizedAt?:string}|null
 }
-export type Branch = {id:string;name:string}
-type Connection = {reportSummariesEnabled?:boolean;loadingRows?:number;dataLoading?:boolean;scopedLoading?:boolean;dataRange?:{start:string;end:string};syncMode?:'incremental'|'full';lastSyncedAt?:number;branches?:Branch[];branchId?:string|null;central?:boolean;state:'loading'|'ready'|'error';realtime:boolean;busy:boolean;error:string;profile:{id:string;full_name:string;role:string}|null}
+type Connection = {reportSummariesEnabled?:boolean;loadingRows?:number;dataLoading?:boolean;scopedLoading?:boolean;dataRange?:{start:string;end:string};syncMode?:'incremental'|'full';lastSyncedAt?:number;state:'loading'|'ready'|'error';realtime:boolean;busy:boolean;error:string;profile:{id:string;full_name:string;role:string}|null}
 const INITIAL_CONNECTION: Connection = {state:'loading',realtime:false,busy:false,error:'',profile:null}
 const EMPTY_ORDERS: BoardOrder[] = []
 const EMPTY_HISTORY: ProcessEvent[] = []
 let orders = EMPTY_ORDERS, active = EMPTY_ORDERS, production = EMPTY_ORDERS
 let history = EMPTY_HISTORY
 let connection = INITIAL_CONNECTION
-let multiBranch = false
 let metadataView = false
 export function selectDataView(metadata:boolean) {
   if(metadataView===metadata)return
-  metadataView=metadata;branchRevision++
+  metadataView=metadata;dataRevision++
   if(started&&connection.profile){setConnection({dataLoading:true});void refreshOnlineData().catch(()=>{})}
 }
-let selectedBranch: string | null | undefined
-let branchRevision = 0
+let dataRevision = 0
 const initialDay = jakartaDate(new Date())
 let dataWindow = {start:initialDay,end:initialDay,orderId:null as string|null}
 const requestedRanges = new Map<symbol, {start:string;end:string}>()
@@ -84,7 +80,7 @@ function queueRangeUpdate() {
     // report, so a monthly history does not stay in browser memory indefinitely.
     if (dataWindow.start === start && dataWindow.end === end) return
     dataWindow = {...dataWindow,start,end}
-    branchRevision++
+    dataRevision++
     if (started && connection.profile) {
       setConnection({dataLoading:connection.state !== 'loading'})
       void refreshOnlineData().catch(() => {})
@@ -106,7 +102,7 @@ export function selectDataOrder(id:string|null) {
   // Leaving details can reuse the current data; entering an old archive must
   // explicitly include its complete order/history even outside the report dates.
   if (!id) return
-  branchRevision++
+  dataRevision++
   if (started && connection.profile) {
     setConnection({dataLoading:connection.state !== 'loading'})
     void refreshOnlineData().catch(() => {})
@@ -120,12 +116,11 @@ export function errorMessage(error: unknown) {
   }
   return 'Tidak dapat terhubung ke server. Periksa jaringan dan coba lagi.'
 }
-async function allRows(table: string, branchId?: string | null, ids?: string[]) {
+async function allRows(table: string, ids?: string[]) {
   const rows: Record<string, unknown>[] = []
   let after: string | null = null
   for (;;) {
     let query = db().from(table).select('*')
-    if (branchId && ['orders','customers','process_history'].includes(table)) query = query.eq('branch_id',branchId)
     if (ids) query = query.in('id', ids)
     if (after) query = query.gt('id',after)
     const {data,error} = await readRequest(query.order('id').limit(1000))
@@ -136,7 +131,7 @@ async function allRows(table: string, branchId?: string | null, ids?: string[]) 
   }
 }
 async function fetchSnapshot() {
-  const revision = branchRevision
+  const revision = dataRevision
   if (connection.dataLoading || connection.state === 'loading') setConnection({loadingRows:0})
   const snapshotWindow = {...dataWindow}
   const {data:profile,error:profileError}=await readRequest(db().from('profiles').select('id,full_name,role,is_active').eq('id',connection.profile?.id??'').maybeSingle())
@@ -144,33 +139,19 @@ async function fetchSnapshot() {
   if(!profile?.is_active)throw new Error('Akses akun sudah dinonaktifkan. Hubungi admin.')
   const role = normalizeRole(profile.role)
   if (!role) throw new Error('Role akun tidak valid. Hubungi Owner.')
-  if (multiBranch) {
-    const {data:context,error} = await readRequest(db().rpc('printex_branch_context'))
-    if(error) throw error
-    const branches = context.branches as Branch[]
-    if (revision !== branchRevision) { refreshAgain=true; return }
-    if(!branches.length && !context.central) throw new Error('Akun belum memiliki cabang aktif. Hubungi Owner Pusat.')
-    if(selectedBranch === undefined || (selectedBranch !== null && !branches.some(branch=>branch.id===selectedBranch)) || (!context.central && selectedBranch === null)) selectedBranch = context.central ? null : context.branchId || branches[0].id
-    const sameBranches = connection.branches?.length === branches.length && branches.every((branch, index) => branch.id === connection.branches?.[index].id && branch.name === connection.branches[index].name)
-    if (!sameBranches || connection.branchId !== selectedBranch || connection.central !== context.central) {
-      setConnection({branches: sameBranches ? connection.branches : branches,branchId:selectedBranch,central:context.central})
-    }
-  }
   if(connection.reportSummariesEnabled && metadataView && !snapshotWindow.orderId) {
-    if(revision!==branchRevision){refreshAgain=true;return}
+    if(revision!==dataRevision){refreshAgain=true;return}
     orders=EMPTY_ORDERS;active=EMPTY_ORDERS;production=EMPTY_ORDERS;history=EMPTY_HISTORY;rowCache={};cacheScope='';syncCursor=null
     setConnection({state:'ready',profile:{id:profile.id,full_name:profile.full_name,role},dataLoading:false,loadingRows:0,error:'',lastSyncedAt:Date.now()})
     return
   }
-  const snapshotBranch = selectedBranch
-  // Role and branch changes invalidate all cached rows, including any newly inaccessible data.
-  const allowedBranches = connection.branches?.map(branch=>branch.id).sort().join(',') ?? ''
-  const scope = `${profile.id}:${role}:${snapshotBranch ?? 'all'}:${allowedBranches}:${snapshotWindow.start}:${snapshotWindow.end}:${snapshotWindow.orderId ?? ''}`
+  // Role changes invalidate all cached rows, including any newly inaccessible data.
+  const scope = `${profile.id}:${role}:${snapshotWindow.start}:${snapshotWindow.end}:${snapshotWindow.orderId ?? ''}`
   const reuse = cacheScope === scope
   let cursor: string | null = null
   let changes: {table: string; id: string}[] | null = null
   {
-    const { data, error } = await readRequest(db().rpc('printex_sync_changes', { p_after: reuse ? syncCursor : null, p_branch: snapshotBranch ?? null }))
+    const { data, error } = await readRequest(db().rpc('printex_sync_changes', { p_after: reuse ? syncCursor : null }))
     if (error?.code === 'PGRST202' || error?.code === '42883') { /* Retry on the next refresh, so an installed migration is picked up without reloading. */ }
     else if (error) throw error
     else { cursor = data.cursor; if (reuse && syncCursor !== null && !data.reset) changes = data.changes }
@@ -183,7 +164,7 @@ async function fetchSnapshot() {
   let scopedLoading = connection.scopedLoading ?? false
   if (changes === null || changes.length) {
     const {data,error} = await readRequest(db().rpc('printex_scoped_snapshot', {
-      p_start:snapshotWindow.start,p_end:snapshotWindow.end,p_branch:snapshotBranch ?? null,
+      p_start:snapshotWindow.start,p_end:snapshotWindow.end,
       p_order:snapshotWindow.orderId,p_changes:changes,
     }))
     if (error?.code === 'PGRST202' || error?.code === '42883') scopedLoading = false
@@ -192,12 +173,12 @@ async function fetchSnapshot() {
       scopedRows = Object.fromEntries(tables.map(table => [table, data[table]])); scopedLoading = true
       let page = data
       while (page.history_more) {
-        if (revision !== branchRevision) { refreshAgain=true; return }
+        if (revision !== dataRevision) { refreshAgain=true; return }
         if (connection.dataLoading || connection.state === 'loading') setConnection({loadingRows:scopedRows!.process_history.length})
         const after = page.history_cursor
         if (!after) throw new Error('Urutan riwayat tidak valid. Silakan coba kembali.')
         const next = await readRequest(db().rpc('printex_scoped_snapshot', {
-          p_start:snapshotWindow.start,p_end:snapshotWindow.end,p_branch:snapshotBranch ?? null,
+          p_start:snapshotWindow.start,p_end:snapshotWindow.end,
           p_order:snapshotWindow.orderId,p_changes:changes,p_history_after:after,
           p_history_only:true,p_history_ids:data.identities,
         }))
@@ -218,16 +199,16 @@ async function fetchSnapshot() {
       if (!ids.size) return rowCache[table]
       return [...rowCache[table].filter(row => !ids.has(String(row.id))), ...scopedRows[table]]
     }
-    if (changes === null) return allRows(table,snapshotBranch)
+    if (changes === null) return allRows(table)
     const ids = [...new Set(changes.filter(change => change.table === table).map(change => change.id))]
     if (!ids.length) return rowCache[table]
     const updated: Record<string, unknown>[] = []
-    for (let i = 0; i < ids.length; i += 100) updated.push(...await allRows(table,snapshotBranch,ids.slice(i,i+100)))
+    for (let i = 0; i < ids.length; i += 100) updated.push(...await allRows(table,ids.slice(i,i+100)))
     // Missing IDs were deleted or lost access; remove them from memory as well.
     const changed = new Set(ids)
     return [...rowCache[table].filter(row => !changed.has(String(row.id))), ...updated]
   }))
-  if (revision !== branchRevision) { refreshAgain=true; return }
+  if (revision !== dataRevision) { refreshAgain=true; return }
   if (reuse && snapshots.every((rows,index) => rows === rowCache[tables[index]])) {
     syncCursor = cursor
     setConnection({state:'ready',dataLoading:false,scopedLoading,dataRange:snapshotWindow,syncMode:cursor === null ? 'full' : 'incremental',lastSyncedAt:Date.now(),error:'',profile:{...profile,role}})
@@ -236,7 +217,7 @@ async function fetchSnapshot() {
   const [orderRows,customers,steps,eventRows] = snapshots
   const stepMap = new Map(steps.map(step => [step.id,step]))
   const customerMap = new Map(customers.map(customer => [customer.id,customer]))
-  if(PROCESS_STAGES.some(stage => !steps.some(step=>step.code===BOARD_STAGE_META[stage].code))) throw new Error('Tahapan produksi belum lengkap. Jalankan SETUP_ONLINE.sql.')
+  if(PROCESS_STAGES.some(stage => !steps.some(step=>step.code===BOARD_STAGE_META[stage].code))) throw new Error('Tahapan produksi belum lengkap. Jalankan supabase/SETUP.sql.')
   const stageFromStep = (id: unknown): BoardStageId => {
     const found = PROCESS_STAGES.find(stage=>BOARD_STAGE_META[stage].code===stepMap.get(id)?.code)
     if(!found) throw new Error('Ada order/riwayat dengan tahap tidak valid. Periksa database.')
@@ -250,10 +231,10 @@ async function fetchSnapshot() {
     const previous = previousOrders.get(String(row.id))
     if (previous && previousOrderRows.get(row.id) === row && previousCustomers.get(row.customer_id) === customerMap.get(row.customer_id) && previousSteps.get(row.current_step_id) === stepMap.get(row.current_step_id)) return previous
     const stage=stageFromStep(row.current_step_id), meta=BOARD_STAGE_META[stage], customer=customerMap.get(row.customer_id)
-    return {id:String(row.id),branch_id:row.branch_id?String(row.branch_id):undefined,spk_code:String(row.spk_code),customer:{name:String(customer?.name??''),phone:String(customer?.phone??'')},
+    return {id:String(row.id),spk_code:String(row.spk_code),customer:{name:String(customer?.name??''),phone:String(customer?.phone??'')},
       production_type:String(row.production_type),meter:Number(row.meter),paper_width:row.paper_width == null ? null : String(Number(row.paper_width)),customer_type:String(row.customer_type),order_state:meta.orderState,
       current_step:{code:meta.code,name:meta.name},board_stage:stage,color_token:meta.color,order_date:String(row.order_date),due_at:String(row.due_at??''),
-      notes:String(row.notes??''),created_at:String(row.created_at),version:Number(row.version),photo_path:row.photo_path?String(row.photo_path):null,
+      notes:String(row.notes??''),created_at:String(row.created_at),version:Number(row.version),photo_path:row.photo_path?String(row.photo_path):null,print_machine_id:row.print_machine_id?String(row.print_machine_id):null,
       archive:row.archived_at?{archivedAt:String(row.archived_at),deliveryMethod:row.delivery_method as DeliveryMethod,finalizedAt:row.archive_finalized_at?String(row.archive_finalized_at):undefined}:null}
   })
   const previousEventRows = new Map((reuse ? rowCache.process_history : []).map(row => [row.id, row]))
@@ -261,11 +242,11 @@ async function fetchSnapshot() {
   const nextHistory: ProcessEvent[] = reuse && eventRows === rowCache.process_history && steps === rowCache.production_steps ? history : eventRows.flatMap(row=>{
     const previous = previousEvents.get(String(row.id))
     if (previous && previousEventRows.get(row.id) === row && previousSteps.get(row.step_id) === stepMap.get(row.step_id) && !row.next_step_id) return [previous]
-    const event: ProcessEvent = {branchId:row.branch_id?String(row.branch_id):undefined,id:String(row.id),orderId:String(row.order_identity??row.order_id),spkCode:String(row.spk_code),customerName:String(row.customer_name??''),
+    const event: ProcessEvent = {id:String(row.id),orderId:String(row.order_identity??row.order_id),spkCode:String(row.spk_code),customerName:String(row.customer_name??''),
     stage:stageFromStep(row.step_id),kind:row.event_kind as ProcessEvent['kind'],occurredAt:String(row.occurred_at),actorName:row.actor_name?String(row.actor_name):null}
     return row.next_step_id && stepMap.get(row.next_step_id)?.code !== 'ARCHIVE' ? [event,{...event,id:String(row.next_event_id ?? `${row.id}:entered`),stage:stageFromStep(row.next_step_id),kind:'entered' as const}] : [event]
   })
-  if (revision !== branchRevision) { refreshAgain=true; return }
+  if (revision !== dataRevision) { refreshAgain=true; return }
   rowCache = Object.fromEntries(tables.map((table,index) => [table,snapshots[index]]))
   cacheScope = scope; syncCursor = cursor
   if (orders !== nextOrders) {
@@ -308,9 +289,7 @@ function schedulePoll() {
   }, connection.realtime && connection.state === 'ready' ? 300000 : 30000)
 }
 function ensureRealtime() {
-  // Central owners retain all-branch notifications; branch staff receive their own branch only.
-  const branch = multiBranch && !connection.central ? connection.branchId : null
-  const scope = `${connection.profile?.id}:${branch ?? 'all'}`
+  const scope = String(connection.profile?.id)
   if (realtimeChannel && realtimeScope === scope) return
   const previous = realtimeChannel
   realtimeScope = scope
@@ -319,8 +298,7 @@ function ensureRealtime() {
   if (previous) void db().removeChannel(previous)
   setConnection({realtime:false})
   for (const table of ['orders','customers','process_history','production_steps','profiles']) {
-    const filter = table === 'profiles' ? `id=eq.${connection.profile!.id}`
-      : branch && table !== 'production_steps' ? `branch_id=eq.${branch}` : undefined
+    const filter = table === 'profiles' ? `id=eq.${connection.profile!.id}` : undefined
     const notify = () => { if (realtimeChannel === channel) scheduleRefresh() }
     if (!filter) channel.on('postgres_changes',{event:'*',schema:'public',table},notify)
     else {
@@ -353,7 +331,8 @@ async function start() {
     setConnection({profile:{...profile,role}})
     const {data:ready,error:setupError}=await readRequest(db().rpc('printex_online_status'))
     if(setupError||ready?.schema_version!==ACCESS_SCHEMA_VERSION) throw new Error('Hak akses database belum diperbarui. Jalankan migrasi 0013_owner_operator_permissions.sql di Supabase SQL Editor.')
-    multiBranch = ready.branches_enabled === true
+    // A database still on the old multi-branch schema rejects branch-less reads as "access denied".
+    if(ready.branches_enabled===true) throw new Error('Database Supabase masih versi cabang. Jalankan langkah 1–3 di supabase/manual/README.md (simpan & kosongkan, SETUP.sql, pulihkan akun), lalu muat ulang halaman.')
     setConnection({reportSummariesEnabled:ready.daily_summaries_enabled===true})
     const requiredTables=['orders','customers','production_steps','process_history','profiles']
     if(requiredTables.some(table=>!ready.realtime_tables?.includes(table))) throw new Error('Realtime belum diaktifkan untuk seluruh tabel.')
@@ -380,7 +359,7 @@ export function useOnlineConnection(){return useSyncExternalStore(subscribe,()=>
 async function mutate(action:string,id:string,data:unknown={}) {
   if(connection.state!=='ready'||connection.busy||connection.dataLoading) throw new Error('Tunggu sinkronisasi selesai sebelum mengubah order.')
   const order=orders.find(item=>item.id===id)
-  if (action !== 'create' && !order) throw new Error('Order tidak tersedia pada cabang aktif.')
+  if (action !== 'create' && !order) throw new Error('Order tidak ditemukan. Muat ulang halaman.')
   if (!canManageOrders(connection.profile?.role)) {
     const code = data && typeof data === 'object' && 'code' in data ? data.code : null
     const target = PROCESS_STAGES.find(stage => BOARD_STAGE_META[stage].code === code)
@@ -397,8 +376,7 @@ async function mutate(action:string,id:string,data:unknown={}) {
   } catch(error) {setConnection({error:errorMessage(error)});throw error} finally {setConnection({busy:false})}
 }
 export async function addOrder(input:NewOrderInput,id=crypto.randomUUID()){
-  if(multiBranch && !selectedBranch) throw new Error('Pilih satu cabang sebelum menambah order.')
-  await mutate('create',id,multiBranch?{...input,branchId:selectedBranch}:input);return orders.find(order=>order.id===id)}
+  await mutate('create',id,input);return orders.find(order=>order.id===id)}
 export async function updateOrder(id:string,input:OrderEditInput){await mutate('edit',id,input)}
 export async function deleteOrder(id:string){await mutate('delete',id)}
 export function canMoveOrder(from:BoardStageId,to:BoardStageId,productionType:string){
@@ -411,6 +389,21 @@ export async function moveOrderToStage(id:string,stage:BoardStageId){
   const order=orders.find(item=>item.id===id)
   if(!order||order.board_stage==='archive'||stage==='archive'||!PROCESS_STAGES.includes(stage)||!canMoveBetweenStages(connection.profile?.role,order.board_stage,stage)||!canMoveOrder(order.board_stage,stage,order.production_type))return false
   await mutate('move',id,{code:BOARD_STAGE_META[stage].code});return true
+}
+/** Assigns the print machine; with move=true the order enters Proses Sublim in the same transaction. */
+export async function setPrintMachine(id:string,machineId:string,move:boolean){
+  if(connection.state!=='ready'||connection.busy||connection.dataLoading) throw new Error('Tunggu sinkronisasi selesai sebelum mengubah order.')
+  const order=orders.find(item=>item.id===id)
+  if(!order) throw new Error('Order tidak ditemukan. Muat ulang halaman.')
+  if(move&&(!canMoveBetweenStages(connection.profile?.role,order.board_stage,'printing')||!canMoveOrder(order.board_stage,'printing',order.production_type)))return false
+  if(!move&&order.board_stage!=='printing') throw new Error('Mesin hanya dapat dipilih saat order berada di Proses Sublim.')
+  setConnection({busy:true,error:''})
+  try {
+    const {error}=await db().rpc('printex_set_print_machine',{p_order:id,p_expected_version:order.version,p_machine:machineId,p_move:move})
+    if(error) throw error
+    await refreshOnlineData()
+    return true
+  } catch(error) {setConnection({error:errorMessage(error)});throw error} finally {setConnection({busy:false})}
 }
 export async function archiveOrder(id:string,deliveryMethod:DeliveryMethod='received'){
   const order=orders.find(item=>item.id===id)
@@ -464,16 +457,3 @@ export async function saveOrderPhoto(id: string, file: File | null) {
   } finally { setConnection({ busy: false }) }
 }
 
-
-export async function selectBranch(id: string | null, options: { history?: boolean; room?: 'all' | null } = {}) {
-  if (!multiBranch || connection.busy || connection.state !== 'ready') return
-  if (id === null ? !connection.central : !connection.branches?.some(branch => branch.id === id)) return
-  if (options.history !== false) recordRoomNavigation(id, options.room ?? null)
-  if (selectedBranch === id) return
-  selectedBranch = id
-  branchRevision++
-  orders = active = production = EMPTY_ORDERS
-  history = EMPTY_HISTORY
-  setConnection({state:'loading',branchId:id})
-  await refreshOnlineData()
-}

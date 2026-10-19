@@ -6,7 +6,7 @@ import { BOARD_STAGE_META, useOnlineConnection, type BoardOrder } from './produc
 import { PAPER_WIDTHS, type PaperWidth } from './paper-output'
 import type { ProcessEvent, ProcessStage } from './process-metrics'
 
-type SummaryRow = { day:string;branchId:string;metric:string;dimension:string;count:number;meter:number;milliseconds:number }
+type SummaryRow = { day:string;metric:string;dimension:string;count:number;meter:number;milliseconds:number }
 type ReportItem = { day:string;milliseconds:number;productionMilliseconds?:number|null;order?:BoardOrder;event?:Omit<ProcessEvent,'stage'> }
 type Result = {rows:SummaryRow[];items:ReportItem[];total:number;loading:boolean;error:string;asOf?:string}
 const empty:Result = {rows:[],items:[],total:0,loading:true,error:''}
@@ -40,8 +40,8 @@ async function request(key:string,rpc:string,args:Record<string,unknown>,force=f
 function useStoredReport(rpc:string,args:Record<string,unknown>,active=true) {
   const status=useOnlineConnection()
   const enabled=status.reportSummariesEnabled===true
-  const identity=[status.profile?.id,status.profile?.role,status.branches?.map(branch=>branch.id).sort().join(',')]
-  const serialized=JSON.stringify({...args,p_branch:status.branchId??null})
+  const identity=[status.profile?.id,status.profile?.role]
+  const serialized=JSON.stringify(args)
   const key=JSON.stringify([identity,rpc,serialized])
   const ready=enabled && active && status.state==='ready'
   const value=useSyncExternalStore(listener=>{
@@ -64,30 +64,30 @@ export function useDailySummary(start:string,end:string) {
 export function useReportDetails(start:string,end:string,metric:string,dimension='',page=1,search='',active=true) {
   return useStoredReport('printex_report_details',{p_start:start,p_end:end,p_metric:metric,p_dimension:dimension,p_offset:(page-1)*50,p_limit:50,p_search:search.trim()},active&&!!start&&!!end&&start<=end)
 }
-export async function exportReportDetails(start:string,end:string,dimension:string,branch:string|null) {
+export async function exportReportDetails(start:string,end:string,dimension:string) {
   const items:ReportItem[]=[]
   for(let offset=0;;offset+=200){
-    const data=await requestReport<{items:ReportItem[];total:number}>('printex_report_details',{p_start:start,p_end:end,p_metric:'process',p_dimension:dimension,p_branch:branch,p_offset:offset,p_limit:200},true)
+    const data=await requestReport<{items:ReportItem[];total:number}>('printex_report_details',{p_start:start,p_end:end,p_metric:'process',p_dimension:dimension,p_offset:offset,p_limit:200},true)
     items.push(...data.items)
     if(items.length>=data.total || !data.items.length)return items
   }
 }
-export function total(rows:SummaryRow[],metric:string,dimension?:string,branch?:string|null,day?:string) {
-  return rows.reduce((sum,row)=>row.metric===metric&&(dimension===undefined||row.dimension===dimension)&&(!branch||row.branchId===branch)&&(!day||row.day===day)?{count:sum.count+Number(row.count),meter:sum.meter+Number(row.meter),milliseconds:sum.milliseconds+Number(row.milliseconds)}:sum,{count:0,meter:0,milliseconds:0})
+export function total(rows:SummaryRow[],metric:string,dimension?:string,day?:string) {
+  return rows.reduce((sum,row)=>row.metric===metric&&(dimension===undefined||row.dimension===dimension)&&(!day||row.day===day)?{count:sum.count+Number(row.count),meter:sum.meter+Number(row.meter),milliseconds:sum.milliseconds+Number(row.milliseconds)}:sum,{count:0,meter:0,milliseconds:0})
 }
-export function storedOutput(rows:SummaryRow[],branch?:string|null,day?:string) {
-  return {dtf:total(rows,'output','dtf',branch,day),sublim:total(rows,'output','sublim',branch,day)}
+export function storedOutput(rows:SummaryRow[],day?:string) {
+  return {dtf:total(rows,'output','dtf',day),sublim:total(rows,'output','sublim',day)}
 }
 function reportDays(start:string,end:string) {
   const days:string[]=[]
   for(let date=Date.parse(start+'T12:00:00Z');Number.isFinite(date)&&date<=Date.parse(end+'T12:00:00Z')&&days.length<366;date+=86400000)days.push(new Date(date).toISOString().slice(0,10))
   return days
 }
-export function storedTrend(rows:SummaryRow[],start:string,end:string,branch?:string|null) {
-  return reportDays(start,end).map(day=>({day,...storedOutput(rows,branch,day)}))
+export function storedTrend(rows:SummaryRow[],start:string,end:string) {
+  return reportDays(start,end).map(day=>({day,...storedOutput(rows,day)}))
 }
-export function storedPaper(rows:SummaryRow[],start:string,end:string,branch?:string|null) {
-  const values=(day?:string)=>Object.fromEntries([...PAPER_WIDTHS,'unknown'].map(width=>[width,total(rows,'paper',width,branch,day)])) as unknown as Record<PaperWidth|'unknown',{count:number;meter:number}>
+export function storedPaper(rows:SummaryRow[],start:string,end:string) {
+  const values=(day?:string)=>Object.fromEntries([...PAPER_WIDTHS,'unknown'].map(width=>[width,total(rows,'paper',width,day)])) as unknown as Record<PaperWidth|'unknown',{count:number;meter:number}>
   return {totals:values(),trend:reportDays(start,end).map(day=>({day,values:values(day)}))}
 }
 export function storedEvent(item:ReportItem,stage:ProcessStage):ProcessEvent {

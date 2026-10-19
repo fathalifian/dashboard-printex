@@ -7,7 +7,8 @@ import Link from 'next/link'
 import { canAccessPage } from '@/lib/access-control'
 import { LoaderCircle } from 'lucide-react'
 
-export default function OnlineStatus({children}:{children:ReactNode}) {
+// `className` styles the content wrapper (the dashboard uses it to fill the screen height).
+export default function OnlineStatus({children,className}:{children:ReactNode;className?:string}) {
   const status=useOnlineConnection()
   const [retrying,setRetrying]=useState(false)
   const pathname = usePathname()
@@ -19,6 +20,8 @@ export default function OnlineStatus({children}:{children:ReactNode}) {
         const client = createClient()
         const refreshed = await client.auth.refreshSession()
         if (refreshed.error || !refreshed.data.session) {
+          // Full reload on purpose: it discards the expired session's in-memory board state.
+          // eslint-disable-next-line @next/next/no-location-assign-relative-destination
           window.location.href = '/login'
           return
         }
@@ -44,6 +47,6 @@ export default function OnlineStatus({children}:{children:ReactNode}) {
       )}
     </div>}
     {status.dataLoading && loading}
-    {status.state==='loading'?loading:<div inert={status.busy||status.state==='error'||status.dataLoading} aria-busy={status.busy||status.dataLoading} className={status.dataLoading?'invisible':status.state==='error'?'opacity-50':undefined}>{children}</div>}
+    {status.state==='loading'?loading:<div inert={status.busy||status.state==='error'||status.dataLoading} aria-busy={status.busy||status.dataLoading} className={[status.dataLoading?'invisible':status.state==='error'?'opacity-50':'',className??''].join(' ').trim()||undefined}>{children}</div>}
   </>
 }

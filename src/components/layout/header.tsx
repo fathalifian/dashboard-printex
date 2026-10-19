@@ -4,23 +4,19 @@ import { LogOut, UserRoundPen, ChevronDown, Moon, Sun, PanelLeftClose, PanelLeft
 import dynamic from 'next/dynamic'
 import Link from 'next/link'
 import { useOnlineConnection } from '@/lib/production-board'
-import BranchSelector from '@/components/branch-selector'
 import { canAccessPage, roleLabel } from '@/lib/access-control'
 import { createClient } from '@/lib/supabase/client'
 import { usePathname } from 'next/navigation'
-import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
+import { useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from 'react'
 
 const AccountEditor = dynamic(() => import('./account-editor'))
 
 const pageTitles: Record<string, string> = {
-  '/dashboard': 'Workspace',
   '/orders': 'Semua Order',
   '/orders/new': 'Tambah Order',
   '/schedule': 'Board Produksi',
   '/reports': 'Laporan Proses',
   '/archives': 'Laporan Arsip',
-  '/settings': 'Pengaturan',
-  '/settings/users': 'Manajemen User',
 }
 
 function subscribeToTheme(onChange: () => void) {
@@ -59,8 +55,9 @@ function ThemeToggle() {
   )
 }
 
-export default function Header({ sidebarCollapsed, onToggleSidebar }: { sidebarCollapsed: boolean; onToggleSidebar: () => void }) {
-  const {profile,branches}=useOnlineConnection()
+// Pages without a sidebar (the dashboard) pass `leading` instead of the toggle and title, and `actions` before the theme toggle.
+export default function Header({ sidebarCollapsed = false, onToggleSidebar, leading, actions }: { sidebarCollapsed?: boolean; onToggleSidebar?: () => void; leading?: ReactNode; actions?: ReactNode }) {
+  const {profile}=useOnlineConnection()
   const pathname = usePathname()
   const [showMenu, setShowMenu] = useState(false)
   const [editingAccount, setEditingAccount] = useState(false)
@@ -83,19 +80,25 @@ export default function Header({ sidebarCollapsed, onToggleSidebar }: { sidebarC
     ? 'Edit Order'
     : pathname.startsWith('/orders/') && pathname !== '/orders/new'
     ? 'Detail Order'
+    : pathname === '/admin' || pathname.startsWith('/admin/')
+    ? 'Pusat Admin'
+    : pathname === '/dashboard' || pathname.startsWith('/dashboard/')
+    ? 'Dashboard'
     : pageTitles[pathname] ?? 'Printex Monitoring'
 
   return (
-    <header className={`workspace-header sticky top-0 z-10 flex min-h-16 shrink-0 w-full items-center justify-between gap-3 border-b border-slate-200 bg-white px-4 sm:px-6 ${branches ? 'flex-wrap py-2' : 'h-16'}`}>
-      <div className="flex items-center gap-3">
+    <header className={`workspace-header sticky top-0 z-10 flex min-h-16 shrink-0 w-full items-center justify-between gap-3 border-b border-slate-200 bg-white px-4 sm:px-6 flex-wrap py-2`}>
+      <div className="flex min-w-0 items-center gap-3">
+        {leading ?? <>
         <button type="button" className="workspace-sidebar-toggle" onClick={onToggleSidebar} aria-expanded={!sidebarCollapsed} aria-controls="workspace-navigation" aria-label={sidebarCollapsed ? 'Perluas sidebar' : 'Perkecil sidebar'} title={sidebarCollapsed ? 'Perluas sidebar' : 'Perkecil sidebar'}>
           {sidebarCollapsed ? <PanelLeftOpen size={18} /> : <PanelLeftClose size={18} />}
         </button>
         <h1 className="page-title">{title}</h1>
+        </>}
       </div>
 
-      <div className="flex items-center gap-3">
-        <BranchSelector />
+      <div className="flex flex-wrap items-center gap-3">
+        {actions}
         <ThemeToggle />
 
         <div ref={accountMenu} className="relative">
@@ -126,7 +129,7 @@ export default function Header({ sidebarCollapsed, onToggleSidebar }: { sidebarC
                 <UserRoundPen className="h-4 w-4" />
                 Edit Akun
               </button>
-              {canAccessPage(profile?.role, '/settings/users') && <Link href="/settings/users" onClick={() => setShowMenu(false)} className="flex w-full items-center gap-2 px-4 py-2 text-sm text-slate-700 hover:bg-slate-50">Kelola Akun</Link>}
+              {canAccessPage(profile?.role, '/admin/akun') && <Link href="/admin/akun" onClick={() => setShowMenu(false)} className="flex w-full items-center gap-2 px-4 py-2 text-sm text-slate-700 hover:bg-slate-50">Kelola Akun</Link>}
               {/* A full navigation clears the in-memory production store on sign-out. */}
               {/* eslint-disable-next-line @next/next/no-location-assign-relative-destination */}
               <button onClick={async()=>{await createClient().auth.signOut();window.location.assign('/login')}} className="flex w-full items-center gap-2 px-4 py-2 text-sm text-red-600 hover:bg-red-50">

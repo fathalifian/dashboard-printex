@@ -9,9 +9,9 @@
     "lint": "eslint",
     "test": "node --test tests/*.test.mjs src/lib/*.test.mjs",
     "typecheck": "tsc --noEmit",
-    "check": "npm run db:branch-check && npm run lint && npm run typecheck && npm test && npm run build",
-    "db:branch-upgrade": "node scripts/build-branch-upgrade.mjs",
-    "db:branch-check": "node scripts/build-branch-upgrade.mjs --existing --check"
+    "check": "npm run db:setup-check && npm run lint && npm run typecheck && npm test && npm run build",
+    "db:setup": "node scripts/build-setup.mjs",
+    "db:setup-check": "node scripts/build-setup.mjs --check"
   },
   "dependencies": {
     "@supabase/ssr": "^0.12.5",

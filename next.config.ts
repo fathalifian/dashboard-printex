@@ -3,6 +3,15 @@ import type { NextConfig } from "next";
 const nextConfig: NextConfig = {
   devIndicators: false,
   poweredByHeader: false,
+  // Settings moved to the dedicated Pusat Admin area.
+  async redirects() {
+    return [
+      { source: '/settings', destination: '/admin', permanent: false },
+      { source: '/settings/users', destination: '/admin/akun', permanent: false },
+      { source: '/admin/tahapan', destination: '/admin', permanent: false },
+      { source: '/admin/cabang', destination: '/admin', permanent: false },
+    ]
+  },
   async headers() {
     return [{
       source: '/:path*',

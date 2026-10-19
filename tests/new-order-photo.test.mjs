@@ -21,7 +21,7 @@ function pageHarness({ failPhoto = false, spkCode = 'TEST-SPK-001' } = {}) {
   const jsx = (type, props) => ({ type, props })
   const dependencies = {
     react,
-    '@/components/order-photo-input': { OrderPhotoInput: 'PhotoInput' },
+    '@/components/orders/order-photo-input': { OrderPhotoInput: 'PhotoInput' },
     '@/lib/order-photo': { compressOrderPhoto: async file => ({ ...file, type: 'image/webp' }) },
     'react/jsx-runtime': { jsx, jsxs: jsx },
     'next/link': { default: 'Link' },

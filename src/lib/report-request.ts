@@ -11,7 +11,6 @@ export const reportRequestSchema = z.object({
   args: z.object({
     p_start: date,
     p_end: date,
-    p_branch: z.string().uuid().nullable().default(null),
     p_metric: z.enum(['archive', 'process', 'timing', 'production']).optional(),
     p_dimension: z.string().max(64).default(''),
     p_offset: z.number().int().min(0).max(10_000_000).default(0),

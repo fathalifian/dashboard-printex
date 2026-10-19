@@ -1,5 +1,7 @@
 # Menjalankan mode online
 
+> **Instalasi saat ini:** seluruh struktur database ada di `supabase/SETUP.sql` (satu lokasi produksi, tanpa cabang). Ikuti [supabase/manual/README.md](manual/README.md). Catatan per migrasi di bawah adalah riwayat; setiap migrasi yang disebut sudah termasuk di SETUP.sql.
+
 ## Shortcut spreadsheet stok (0017)
 
 Jalankan `migrations/0017_stock_shortcuts.sql`, lalu `migrations/0018_owner_stock_shortcuts.sql` melalui Supabase SQL Editor untuk menyimpan nama dan link dua shortcut di Board Produksi. Jika 0017 sudah terpasang, cukup jalankan 0018 untuk menambahkan hak Owner. Tautan awal tetap tersedia sebelum migrasi. Owner dan Admin aktif dapat mengubah nama/link melalui ikon pensil; Operator hanya dapat membuka tautan. Aturan yang sama diterapkan di server dan RLS database. Perubahan terlihat di perangkat lain saat kembali ke halaman atau saat pembaruan berkala (30 detik). Menjalankan ulang migrasi tidak menimpa shortcut yang sudah diedit.
@@ -22,19 +24,11 @@ Jalankan `migrations/0016_photo_cleanup.sql` setelah 0015 untuk mengaktifkan pem
 
 Migrasi tidak mengompresi atau menghapus foto lama yang masih dipakai order. Aturan penghapusan foto saat finalisasi arsip dijelaskan di bawah.
 
-1. Database baru: jalankan migrasi 0001 sampai 0006 berurutan di Supabase SQL Editor. Jika tabel sudah ada, jangan ulangi migrasi awal.
-2. Jalankan `SETUP_ONLINE.sql` (setup online dan penghapusan endpoint impor lokal, aman dijalankan ulang).
+1. Database baru: jalankan `SETUP.sql` di Supabase SQL Editor (berisi seluruh migrasi 0001–0034).
+2. Database cabang lama: ikuti langkah 1–3 di `manual/README.md`.
 3. Buat akun Owner di Authentication > Users, lalu jalankan `ACTIVATE_ADMIN.sql`.
 4. Isi `NEXT_PUBLIC_SUPABASE_URL` dan `NEXT_PUBLIC_SUPABASE_ANON_KEY` atau `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` di `.env.local` dan Environment Variables Vercel. File env tidak masuk Git.
 5. Login ke web. Uji perubahan order pada dua browser yang login.
-
-## Mengganti data dengan 20 order baru
-
-Jalankan `RESET_20_ORDERS.sql` secara manual di SQL Editor setelah setup online berhasil. Script ini menghapus seluruh order lama, termasuk arsip dan riwayat proses serta item jadwal terkait, kemudian membuat 20 order baru di Order Masuk. Akun, direktori customer, mesin, dan tahapan produksi tetap tersimpan.
-
-Tanggal order mengikuti tanggal eksekusi dalam WIB. Lima jenis produksi masing-masing memiliki empat order. Riwayat masuk dicatat oleh trigger normal database. Semua perubahan berada dalam satu transaksi; jika gagal, data tabel sebelumnya dipulihkan oleh rollback.
-
-Script reset tidak otomatis dijalankan ketika push atau deploy, agar deployment berikutnya tidak menghapus order yang sudah dikerjakan. Hasil query terakhir harus menunjukkan `total_order = 20` dan `jenis_produksi = 5`. Muat ulang web setelah reset.
 
 Database yang sudah online: jalankan migrasi `0009_remove_local_import.sql` untuk menghapus endpoint impor lama. Order dan laporan online tetap tersimpan.
 
@@ -71,7 +65,7 @@ Jalankan migrations/0012_hard_delete_users.sql pada database yang sudah ada. Mig
 
 ## Owner, Admin, dan Operator (migrasi 0013)
 
-Untuk database yang sudah menjalankan migrasi 0012, jalankan `migrations/0013_owner_operator_permissions.sql` melalui Supabase SQL Editor sebelum memakai versi aplikasi ini. Database baru atau versi lama dapat mengikuti setup lengkap di atas; `SETUP_ONLINE.sql` sudah menyertakan migrasi 0013.
+Untuk database yang sudah menjalankan migrasi 0012, jalankan `migrations/0013_owner_operator_permissions.sql` melalui Supabase SQL Editor sebelum memakai versi aplikasi ini. Database baru atau versi lama dapat mengikuti setup lengkap di atas; `SETUP.sql` sudah menyertakan migrasi 0013.
 
 Migrasi mengubah `superadmin` menjadi `owner` dan `staff` menjadi `operator`. `admin` tetap sama. ID akun, status aktif, order, dan riwayat tidak dihapus. Aman dijalankan ulang. Aplikasi menunggu schema_version 8 sebelum mengaktifkan operasi.
 
@@ -90,7 +84,7 @@ Verifikasi setelah migrasi: masuk sebagai Operator; pastikan menu hanya Dashboar
 
 ## WhatsApp Customer Service (migrasi 0014)
 
-Database yang sudah ada: jalankan `migrations/0014_customer_service.sql` melalui Supabase SQL Editor setelah migrasi 0013. Setup baru sudah menyertakannya di `SETUP_ONLINE.sql`. Migrasi ini tidak mengubah order atau nomor yang sudah tersimpan.
+Database yang sudah ada: jalankan `migrations/0014_customer_service.sql` melalui Supabase SQL Editor setelah migrasi 0013. Setup baru sudah menyertakannya di `SETUP.sql`. Migrasi ini tidak mengubah order atau nomor yang sudah tersimpan.
 
 Login sebagai Admin atau Owner, buka **Pengaturan > WhatsApp Customer Service**, isi nomor (08 atau +62), lalu simpan. Nomor tersimpan untuk semua pengguna; sidebar diperbarui langsung pada perangkat penyimpan, ketika tab lain kembali aktif, atau dalam 60 detik pada tab aktif. Kosongkan nomor untuk menonaktifkan tautan. Operator hanya dapat membaca kontak; RLS database dan server action menolak perubahannya.
 
@@ -108,11 +102,9 @@ antrean tetap tersimpan dan dicoba kembali saat aplikasi Owner/Admin aktif (peme
 Foto yang sudah dihapus tidak dapat dipulihkan melalui aplikasi.
 Aturan berlaku untuk finalisasi setelah migrasi; foto arsip lama tidak dihapus massal.
 
-Jika muncul error printex_queue_old_photo() does not exist, jalankan seluruh isi
-supabase/REPAIR_ARCHIVE_PHOTOS.sql di SQL Editor. File ini memasang dependensi
-0015, 0016, dan 0019 dalam satu transaksi dan aman dijalankan ulang. Tidak menghapus
-foto arsip lama atau data order. Aplikasi terbaru tetap diperlukan untuk penghapusan
-file langsung melalui Storage API saat finalisasi.
+Jika muncul error printex_queue_old_photo() does not exist, jalankan ulang
+`migrations/0015_order_photos.sql`, `0016_photo_cleanup.sql`, lalu `0019_archive_photo_cleanup.sql`.
+Ketiganya aman dijalankan ulang dan tidak menghapus foto arsip lama atau data order.
 
 ## No. WhatsApp customer opsional
 Jalankan migrations/0020_optional_customer_phone.sql untuk menyimpan nomor dari Tambah Order. Kolom boleh kosong; nomor lama tetap dipertahankan ketika edit tanpa mengirim customerPhone.

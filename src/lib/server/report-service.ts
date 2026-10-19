@@ -18,14 +18,8 @@ export async function readReport(request: ReportRequest) {
   const role = normalizeRole(profile?.role)
   if (profileError || !profile?.is_active || !role) throw new ReportError('Akun tidak memiliki akses.', 403)
   if (request.rpc === 'printex_report_details' && !canAccessPage(role, '/reports')) throw new ReportError('Akun tidak memiliki akses laporan.', 403)
-  // Never cache authorization. This also checks branch activation and membership.
-  const { data: context, error: contextError } = await client.rpc('printex_branch_context').abortSignal(AbortSignal.timeout(10_000))
-  if (contextError || !context) throw new ReportError('Akses cabang belum dapat diperiksa.', 503)
-  const branches: string[] = context.branches.map((branch: { id: string }) => branch.id).sort()
-  if (!branches.length && !context.central) throw new ReportError('Akun belum memiliki cabang aktif.', 403)
-  if (request.args.p_branch && !branches.includes(request.args.p_branch)) throw new ReportError('Anda tidak memiliki akses ke cabang ini.', 403)
-  const { p_start, p_end, p_branch } = request.args
-  const args = request.rpc === 'printex_daily_report' ? { p_start, p_end, p_branch } : request.args
+  const { p_start, p_end } = request.args
+  const args = request.rpc === 'printex_daily_report' ? { p_start, p_end } : request.args
   const load = () => queryGate(async () => {
     const { data, error: rpcError } = await client.rpc(request.rpc, args).abortSignal(AbortSignal.timeout(25_000))
     if (rpcError) throw new ReportError('Laporan belum dapat dimuat. Coba kembali.', rpcError.code === '42501' ? 403 : 503)
@@ -34,7 +28,7 @@ export async function readReport(request: ReportRequest) {
   }, () => new ReportError('Laporan sedang sibuk. Coba kembali beberapa saat lagi.', 429))
   // Details and exports always query PostgreSQL, so personal order data stays out of Redis.
   if (request.rpc !== 'printex_daily_report') return { value: await load(), source: 'database' }
-  const key = 'printex:report:v1:' + createHash('sha256').update(JSON.stringify([process.env.NEXT_PUBLIC_SUPABASE_URL, user.id, role, context.central, branches, args])).digest('hex')
+  const key = 'printex:report:v1:' + createHash('sha256').update(JSON.stringify([process.env.NEXT_PUBLIC_SUPABASE_URL, user.id, role, args])).digest('hex')
   const complete = (value: string) => {
     try {
       const data = JSON.parse(value)

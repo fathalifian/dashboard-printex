@@ -3,12 +3,11 @@
 import { Suspense, useRef, useState } from 'react'
 import { useParams, useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
-import { OrderTimer } from '@/components/production-timers'
-import OrderPhoto from '@/components/order-photo'
-import DeleteConfirmation from '@/components/delete-confirmation'
-import { AlertTriangle, CheckCircle2, Circle, Loader2, Pencil, Trash2 } from 'lucide-react'
-import { BOARD_STAGES } from '@/lib/process-metrics'
-import { deleteOrder, errorMessage, useAllOrders, useProcessHistory, BOARD_STAGE_META } from '@/lib/production-board'
+import { OrderTimer } from '@/components/production/production-timers'
+import OrderPhoto from '@/components/orders/order-photo'
+import DeleteConfirmation from '@/components/ui/delete-confirmation'
+import { AlertTriangle, Pencil, Trash2 } from 'lucide-react'
+import { deleteOrder, errorMessage, useAllOrders } from '@/lib/production-board'
 import { StatusBadge, CustomerTypeBadge } from '@/components/ui/badges'
 import { formatDate, formatDueDate, isOverdue } from '@/lib/utils'
 import { cn } from '@/lib/utils'
@@ -26,7 +25,6 @@ function OrderDetail() {
     ? `/${from}`
     : '/dashboard'
   const order = useAllOrders().find(o => o.id === id)
-  const history = useProcessHistory().filter(event => event.orderId === id)
   const [confirmDelete, setConfirmDelete] = useState(false)
   const [deleting, setDeleting] = useState(false)
   const [deleteError, setDeleteError] = useState('')
@@ -53,7 +51,7 @@ function OrderDetail() {
   }
 
   return (
-    <div className="space-y-5 max-w-5xl">
+    <div className="flex flex-1 flex-col gap-5">
       {/* Back + Header */}
       <div className="flex items-center gap-3">
         <Link href={backHref} className="flex items-center gap-1.5 text-sm text-slate-500 hover:text-slate-700 transition-colors">
@@ -80,13 +78,13 @@ function OrderDetail() {
         </div>
       </div>
 
-      <div className="grid items-start gap-5 lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
-        {/* Left: Order Info + Timeline */}
+      <div className="grid flex-1 items-stretch gap-5 lg:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
+        {/* Left: order information */}
         <div className="min-w-0 space-y-5">
           {/* Info Cards */}
           <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
             <h3 className="text-sm font-semibold text-slate-900 mb-4">Informasi Order</h3>
-            <div className="grid grid-cols-2 gap-4 sm:grid-cols-3">
+            <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 2xl:grid-cols-4">
               <div>
                 <p className="text-xs text-slate-400">Kode SPK</p>
                 <code className="font-mono text-sm font-bold text-slate-900">{order.spk_code}</code>
@@ -111,68 +109,22 @@ function OrderDetail() {
                 </p>
               </div>
               {order.notes && (
-                <div className="col-span-2 sm:col-span-3">
+                <div className="col-span-full">
                   <p className="text-xs text-slate-400">Catatan</p>
                   <p className="text-sm text-slate-700">{order.notes}</p>
                 </div>
               )}
             </div>
           </div>
-
-          {/* Production Timeline */}
-          <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
-            <h3 className="text-sm font-semibold text-slate-900 mb-4">Timeline Produksi</h3>
-            <div className="space-y-0">
-              {BOARD_STAGES.map((stage, idx) => {
-                const step = BOARD_STAGE_META[stage]
-                const completed = stage === 'done' ? !!order.archive?.finalizedAt : history.some(event => event.stage === stage && event.kind === 'completed')
-                const currentStage = order.board_stage === 'archive' ? 'done' : order.board_stage
-                const skipped = idx < BOARD_STAGES.indexOf(currentStage) && !history.some(event => event.stage === stage)
-                const state = completed ? 'completed' : currentStage === stage ? 'active' : skipped ? 'skipped' : 'pending'
-                const isLast = idx === BOARD_STAGES.length - 1
-                return (
-                  <div key={step.code} className="flex gap-4">
-                    <div className="flex flex-col items-center">
-                      <div className={cn(
-                        'flex h-8 w-8 items-center justify-center rounded-full border-2 flex-shrink-0 z-10',
-                        state === 'completed' ? 'border-emerald-500 bg-emerald-500 text-white' :
-                        state === 'active' ? 'border-brand-500 bg-brand-50 text-brand-600' :
-                        'border-slate-200 bg-white text-slate-300'
-                      )}>
-                        {state === 'completed' ? <CheckCircle2 className="h-4 w-4" /> :
-                         state === 'active' ? <Loader2 className="h-4 w-4 animate-spin" /> :
-                         <Circle className="h-4 w-4" />}
-                      </div>
-                      {!isLast && (
-                        <div className={cn('w-0.5 flex-1 min-h-[2rem]', state === 'completed' ? 'bg-emerald-200' : 'bg-slate-100')} />
-                      )}
-                    </div>
-                    <div className="pb-6 min-w-0">
-                      <p className={cn('text-sm font-semibold',
-                        state === 'completed' ? 'text-emerald-700' :
-                        state === 'active' ? 'text-brand-700' :
-                        'text-slate-400'
-                      )}>
-                        {step.name}
-                      </p>
-                      <p className="text-xs text-slate-400">
-                        {state === 'completed' ? 'Selesai' :
-                         state === 'active' ? 'Sedang berjalan' : state === 'skipped' ? 'Tidak dilalui / tidak tercatat' :
-                         'Menunggu'}
-                      </p>
-                    </div>
-                  </div>
-                )
-              })}
-            </div>
-          </div>
+          <OrderTimer id={order.id} detail />
         </div>
-        <section className="min-w-0 rounded-xl border border-slate-200 bg-white p-5 shadow-sm" aria-label="Foto order">
+        {/* The photo column stretches to the height of the information column. */}
+        <section className="flex min-w-0 flex-col rounded-xl border border-slate-200 bg-white p-5 shadow-sm" aria-label="Foto order">
           <h3 className="text-sm font-semibold text-slate-900">Foto Order</h3>
-          {order.photo_path ? <OrderPhoto orderId={order.id} spkCode={order.spk_code} path={order.photo_path} editable={false} /> : <p className="mt-4 text-sm text-slate-500">Belum ada foto order.</p>}
+          {order.photo_path ? <OrderPhoto orderId={order.id} spkCode={order.spk_code} path={order.photo_path} editable={false} />
+            : <p className="mt-4 flex flex-1 items-center justify-center rounded-xl border border-dashed border-slate-200 p-8 text-sm text-slate-500">Belum ada foto order.</p>}
         </section>
       </div>
-      <OrderTimer id={order.id} detail />
       {confirmDelete && <DeleteConfirmation title="Hapus order?" message={`Order ${order.spk_code} akan dihapus dari seluruh halaman. Tindakan ini tidak dapat dibatalkan.`} busy={deleting} error={deleteError} onCancel={() => setConfirmDelete(false)} onConfirm={() => void handleDelete()} />}
     </div>
   )

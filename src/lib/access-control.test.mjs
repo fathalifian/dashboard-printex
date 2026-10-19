@@ -27,6 +27,20 @@ test('page access is restricted by role, including direct and nested URLs', () =
   }
 })
 
+test('Pusat Admin: operators are blocked, accounts are for the owner', () => {
+  const pages = ['/admin', '/admin/akun', '/admin/mesin', '/admin/waktu-kerja', '/admin/jam-operator', '/admin/link-stok', '/admin/customer-service', '/admin/profil']
+  const allowed = {
+    operator: [],
+    admin: ['/admin', '/admin/mesin', '/admin/waktu-kerja', '/admin/jam-operator', '/admin/link-stok', '/admin/customer-service', '/admin/profil'],
+    owner: ['/admin', '/admin/akun', '/admin/mesin', '/admin/waktu-kerja', '/admin/jam-operator', '/admin/link-stok', '/admin/customer-service', '/admin/profil'],
+    central_owner: [],
+  }
+  for (const [role, paths] of Object.entries(allowed)) for (const path of pages) {
+    assert.equal(access.canAccessPage(role, path), paths.includes(path), `${role}: ${path}`)
+    assert.equal(access.canAccessPage(role, path + '/'), paths.includes(path), `${role}: ${path}/`)
+  }
+})
+
 test('operators must have both move endpoints inside their four stages', () => {
   const all = ['incoming', 'design', 'design_done', 'printing', 'press', 'done', 'archive']
   const allowed = ['design_done', 'printing', 'press', 'done']
@@ -37,6 +51,7 @@ test('operators must have both move endpoints inside their four stages', () => {
   assert.equal(access.canManageOrders('operator'), false)
   assert.equal(access.canManageUsers('admin'), false)
   assert.equal(access.canManageUsers('owner'), true)
-  assert.equal(access.roleLabel('superadmin'), 'Owner Cabang')
+  assert.equal(access.roleLabel('superadmin'), 'Owner')
+  assert.equal(access.normalizeRole('central_owner'), null, 'The central owner role no longer exists')
   assert.equal(access.roleLabel('staff'), 'Operator')
 })

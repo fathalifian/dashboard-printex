@@ -2,13 +2,13 @@
 
 ## Realtime dan polling
 
-- Insert/update order, pelanggan, dan riwayat dibatasi `branch_id` untuk akun cabang. Owner Pusat tetap menerima seluruh cabang. Tahapan produksi bersifat global; profil dibatasi ID pengguna yang login.
+- Perubahan order, pelanggan, riwayat, dan tahapan produksi didengarkan untuk semua baris; profil dibatasi ID pengguna yang login.
 - DELETE didengarkan tanpa filter karena payload dapat hanya berisi primary key. Browser hanya menyinkronkan jika ID tersebut ada dalam snapshot yang berhak dibaca. RLS dan RPC tetap menjadi pemeriksaan akses utama.
-- Langganan diganti ketika cakupan akses berubah; callback langganan lama diabaikan.
+- Langganan diganti ketika akun yang login berubah; callback langganan lama diabaikan.
 - Polling cadangan: 5 menit saat realtime sehat, 30 detik saat realtime gagal atau snapshot error. Notifikasi realtime tetap memicu sinkronisasi dengan debounce 300 ms.
 - Tab tersembunyi menghentikan timer polling dan refresh otomatis dari notifikasi. Kembali ke tab, fokus, atau koneksi online memicu satu refresh terkelompok. Permintaan yang sudah berjalan dapat selesai; mutasi eksplisit tetap menyinkronkan hasilnya.
 
-## Audit indeks, 1 Oktober 2026
+## Audit indeks, 1 Oktober 2026 (masa multi-cabang)
 
 Query snapshot memakai `WHERE branch_id = ?`, cursor `id > ?`, dan `ORDER BY id LIMIT 1000`. Migrasi `0011_snapshot_indexes.sql` menambahkan `(branch_id, id)` ke orders, customers, dan process_history. Paket upgrade menyertakannya untuk instalasi berikutnya. Pada database aktif, ketiganya telah dipasang dengan `CREATE INDEX CONCURRENTLY` dan diverifikasi valid/ready.
 
@@ -26,7 +26,7 @@ Pemindaian foto sisa tidak lagi berjalan pada tiap perangkat. Satu job Supabase 
 
 File dihapus melalui Storage API, bukan DELETE metadata storage. pg_net mengirim setelah transaksi claim commit. [Dokumentasi pg_net](https://supabase.com/docs/guides/database/extensions/pg_net), [aturan penghapusan Storage](https://supabase.com/docs/guides/storage/management/delete-objects).
 
-Untuk instalasi baru: isi Vault `printex_storage_url` dengan URL proyek HTTPS dan `printex_storage_cleanup_key` dengan server secret API key proyek (bukan anon key). Sebagai pemilik database, jalankan `supabase/jobs/photo-cleanup.sql`, lalu `supabase/jobs/enable-photo-cleanup.sql`. Jalankan ulang dengan nama job sama untuk memperbarui, bukan membuat duplikat. Rotasi key perlu memperbarui secret Vault tersebut. File job terpisah dari migrasi cabang karena membutuhkan ekstensi Supabase yang tidak tersedia di database pengujian lokal.
+Untuk instalasi baru: isi Vault `printex_storage_url` dengan URL proyek HTTPS dan `printex_storage_cleanup_key` dengan server secret API key proyek (bukan anon key). Fungsi job ada di migrasi `0034_scheduled_photo_cleanup.sql` (bagian dari `supabase/SETUP.sql`). Sebagai pemilik database, aktifkan jadwalnya dengan `supabase/jobs/enable-photo-cleanup.sql`. Jalankan ulang dengan nama job sama untuk memperbarui, bukan membuat duplikat. Rotasi key perlu memperbarui secret Vault tersebut. Aktivasi terpisah dari SETUP karena membutuhkan pg_cron, pg_net, dan Vault yang tidak tersedia di database pengujian lokal. Jadwal yang sudah aktif tetap bekerja setelah database dibangun ulang dengan SETUP.sql karena nama fungsinya sama.
 
 Job telah aktif pada database proyek. Uji satu file sementara melalui Storage API menghasilkan HTTP 200 dan objek tidak lagi ada; file serta catatan uji dibersihkan. Kode frontend tetap perlu deployment agar browser memakai optimasi baru.
 

@@ -35,21 +35,21 @@ function actions(role, active = true, signedIn = true) {
       }
     },
   }
-  const api = compile('src/app/(dashboard)/settings/customer-service-actions.ts', {
+  const api = compile('src/app/(admin)/admin/_actions/customer-service.ts', {
     '@/lib/supabase/server': { createClient: async () => client }, '@/lib/access-control': access, '@/lib/customer-service': phone,
   })
   return { ...api, writes: () => writes }
 }
 
 test('server actions allow Admin/Owner writes and deny operator, inactive and unsigned requests', async () => {
-  for (const role of ['central_owner', 'owner', 'admin']) {
+  for (const role of ['owner', 'admin']) {
     const api = actions(role)
     assert.deepEqual(await api.saveCustomerService('081234567890'), { number: '6281234567890', error: '' })
     assert.equal((await api.getCustomerService()).number, '6281234567890')
     assert.equal((await api.saveCustomerService('')).error, '')
     assert.equal(api.writes(), 2)
   }
-  for (const api of [actions('operator'), actions('owner', false), actions('admin', true, false), actions('unknown')]) {
+  for (const api of [actions('operator'), actions('central_owner'), actions('owner', false), actions('admin', true, false), actions('unknown')]) {
     assert.ok((await api.saveCustomerService('081234567890')).error)
     assert.equal(api.writes(), 0)
   }
@@ -60,20 +60,19 @@ test('server actions allow Admin/Owner writes and deny operator, inactive and un
   assert.ok((await actions('operator', false).getCustomerService()).error)
 })
 
-test('branch authorization requires an accessible explicit branch and rejects forged branch IDs', async () => {
- const selected='11111111-1111-4111-8111-111111111111'
- let role='central_owner'
+test('settings authorization requires an active signed-in account; writes need Owner or Admin', async () => {
+ let role='owner', active=true, signedIn=true
  const client={
-  auth:{getUser:async()=>({data:{user:{id:'user'}}})},
-  from:()=>({select:()=>({eq:()=>({single:async()=>({data:{role,is_active:true}})})})}),
-  rpc:async(name,args)=>({data:name==='printex_online_status'?{branches_enabled:true}:args.p_branch===selected}),
+  auth:{getUser:async()=>({data:{user:signedIn?{id:'user'}:null}})},
+  from:()=>({select:()=>({eq:()=>({single:async()=>({data:{role,is_active:active}})})})}),
  }
- const api=compile('src/lib/branch-settings.ts',{'@/lib/supabase/server':{createClient:async()=>client},'@/lib/access-control':access})
- await assert.rejects(()=>api.authorizeBranchSettings(null),/Pilih satu cabang/)
- await assert.rejects(()=>api.authorizeBranchSettings('forged'),/Pilih satu cabang/)
- await assert.rejects(()=>api.authorizeBranchSettings('22222222-2222-4222-8222-222222222222'),/akses/)
- assert.equal((await api.authorizeBranchSettings(selected,true)).branchId,selected)
+ const api=compile('src/lib/settings-auth.ts',{'@/lib/supabase/server':{createClient:async()=>client},'@/lib/access-control':access})
+ assert.equal((await api.authorizeSettings(true)).client,client)
+ role='admin'; assert.equal((await api.authorizeSettings(true)).client,client)
  role='operator'
- assert.equal((await api.authorizeBranchSettings(selected)).branchId,selected)
- await assert.rejects(()=>api.authorizeBranchSettings(selected,true),/Admin dan Owner/)
+ assert.equal((await api.authorizeSettings()).client,client,'Operators may read settings')
+ await assert.rejects(()=>api.authorizeSettings(true),/Admin dan Owner/)
+ role='central_owner'; await assert.rejects(()=>api.authorizeSettings(),/tidak memiliki akses/)
+ role='owner'; active=false; await assert.rejects(()=>api.authorizeSettings(),/tidak memiliki akses/)
+ active=true; signedIn=false; await assert.rejects(()=>api.authorizeSettings(),/login/)
 })

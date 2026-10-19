@@ -171,39 +171,18 @@ test('inactive staff and anonymous users cannot read business data or write',asy
   await db.query(`SELECT set_config('request.jwt.claim.sub',$1,false)`,[admin])
 })
 
-test('online setup can run twice without changing existing orders or history',async()=>{
+test('bundled setup equals the migrations and refuses a database that already has tables; admin activation is repeatable',async()=>{
   await db.exec('RESET ROLE')
-  const beforeOrders=(await db.query('SELECT * FROM orders ORDER BY id')).rows
-  const beforeHistory=(await db.query('SELECT * FROM process_history ORDER BY id')).rows
-  const setup=readFileSync('supabase/SETUP_ONLINE.sql','utf8')
-  await db.exec("CREATE FUNCTION public.printex_import_local(jsonb) RETURNS void LANGUAGE sql AS 'SELECT'")
-  await db.exec(setup)
-  await db.exec(setup)
-  assert.equal((await db.query("SELECT to_regprocedure('public.printex_import_local(jsonb)') AS fn")).rows[0].fn,null)
-  assert.deepEqual((await db.query('SELECT * FROM orders ORDER BY id')).rows,beforeOrders)
-  assert.deepEqual((await db.query('SELECT * FROM process_history ORDER BY id')).rows,beforeHistory)
+  const setup=readFileSync('supabase/SETUP.sql','utf8')
+  for(const file of readdirSync('supabase/migrations').filter(file=>file.endsWith('.sql'))) assert.ok(setup.includes('-- supabase/migrations/'+file),file)
+  await assert.rejects(db.exec(setup.replace(/CREATE EXTENSION IF NOT EXISTS "uuid-ossp";/,'')),/SIMPAN_DAN_KOSONGKAN/)
+  await db.exec('ROLLBACK')
   await db.query("INSERT INTO auth.users(id,email) VALUES('99999999-0000-4000-8000-000000000001','fathalifian@gmail.com')")
   const activate=readFileSync('supabase/ACTIVATE_ADMIN.sql','utf8')
   await db.exec(activate)
   await db.exec(activate)
   const profile=(await db.query("SELECT role,is_active FROM profiles WHERE id='99999999-0000-4000-8000-000000000001'")).rows[0]
   assert.deepEqual(profile,{role:'owner',is_active:true})
-})
-
-test('manual reset replaces old and archived orders with twenty new tracked incoming orders',async()=>{
-  await db.exec('RESET ROLE')
-  const reset=readFileSync('supabase/RESET_20_ORDERS.sql','utf8')
-  for(let run=0;run<2;run++) {
-    await db.exec(reset)
-    const rows=(await db.query('SELECT o.*,s.code FROM orders o JOIN production_steps s ON s.id=o.current_step_id')).rows
-    assert.equal(rows.length,20)
-    assert.equal(new Set(rows.map(row=>row.id)).size,20)
-    assert.equal(new Set(rows.map(row=>row.production_type)).size,5)
-    assert.ok(rows.every(row=>row.code==='ORDER_IN' && row.archive_finalized_at===null))
-    assert.equal((await db.query('SELECT count(*)::int AS n FROM process_history')).rows[0].n,20)
-    assert.equal((await db.query("SELECT count(*)::int AS n FROM orders WHERE order_date=(statement_timestamp() AT TIME ZONE 'Asia/Jakarta')::date")).rows[0].n,20)
-    assert.ok((await db.query('SELECT * FROM profiles')).rows.length>0)
-  }
 })
 
 test('optional design and DTF Press skips create no events for skipped stages',async()=>{
@@ -220,7 +199,9 @@ test('optional design and DTF Press skips create no events for skipped stages',a
       await mutate('move',{code:'PRESS'},3,key)
       await mutate('move',{code:'DONE'},4,key)
     }
-    const events=(await db.query('SELECT s.code,h.event_kind FROM process_history h JOIN production_steps s ON s.id=h.step_id WHERE h.order_id=$1',[key])).rows
+    // Compact history: entering a stage is the next_step of the previous transition.
+    const events=(await db.query(`SELECT s.code,h.event_kind FROM process_history h JOIN production_steps s ON s.id=h.step_id WHERE h.order_id=$1
+      UNION ALL SELECT n.code,'entered' FROM process_history h JOIN production_steps n ON n.id=h.next_step_id WHERE h.order_id=$1`,[key])).rows
     assert.ok(events.every(event=>event.code!=='DESIGN'))
     assert.equal(events.filter(event=>event.code==='PRESS').length,productionType==='DTF'?0:2)
   }
@@ -541,34 +522,6 @@ test('shared stock shortcuts persist Owner/Admin edits while RLS denies Operator
   await db.exec('RESET ROLE')
 })
 
-test('archive photo repair restores missing dependencies and is safe to rerun', async () => {
-  await db.exec('RESET ROLE')
-  const before = (await db.query('SELECT * FROM orders ORDER BY id')).rows
-  const historyBefore = (await db.query('SELECT * FROM process_history ORDER BY id')).rows
-  await db.exec('DROP FUNCTION public.printex_queue_old_photo() CASCADE')
-  const repair = readFileSync('supabase/REPAIR_ARCHIVE_PHOTOS.sql', 'utf8')
-  await db.exec(repair)
-  await db.exec(repair)
-  assert.deepEqual((await db.query('SELECT * FROM orders ORDER BY id')).rows, before)
-  assert.deepEqual((await db.query('SELECT * FROM process_history ORDER BY id')).rows, historyBefore)
-  const owner = 'aaaaaaaa-1111-4000-8000-000000000001'
-  const orderId = 'eeeeeeee-2222-4000-8000-000000000001'
-  const path = orderId + '/eeeeeeee-3333-4000-8000-000000000001.webp'
-  await db.query("SELECT set_config('request.jwt.claim.sub',$1,false)", [owner])
-  await db.exec('SET ROLE authenticated')
-  await mutate('create', input, null, orderId)
-  await db.query("INSERT INTO storage.objects(bucket_id,name) VALUES('order-photos',$1)", [path])
-  await db.query('SELECT printex_set_order_photo($1,1,$2)', [orderId,path])
-  const row = async () => (await db.query('SELECT * FROM orders WHERE id=$1', [orderId])).rows[0]
-  for (const code of ['DESIGN_DONE','PRINTING','DONE']) await mutate('move', {code}, (await row()).version, orderId)
-  await mutate('archive', {deliveryMethod:'pickup'}, (await row()).version, orderId)
-  assert.equal((await row()).photo_path, path)
-  await mutate('finish', {}, (await row()).version, orderId)
-  assert.equal((await row()).photo_path, null)
-  assert.deepEqual((await db.query('SELECT * FROM printex_claim_photo_cleanup($1)',[path])).rows, [{path}])
-  await db.exec('RESET ROLE')
-})
-
 test('optional WhatsApp persists, supports empty values, and survives edits from older clients', async () => {
   await db.exec('RESET ROLE')
   await db.exec(readFileSync('supabase/migrations/0020_optional_customer_phone.sql', 'utf8'))
@@ -639,18 +592,6 @@ test('paper width persists create/edit, rejects invalid widths and assigns DTF a
  await mutate('create',{...input,productionType:'DTF'},null,dtfId)
  assert.equal(Number((await db.query('SELECT paper_width FROM orders WHERE id=$1',[dtfId])).rows[0].paper_width),0.6)
  await db.exec('RESET ROLE')
-})
-
-test('official branch migrations install on a legacy database without rewriting order contents',async()=>{
- await db.exec('RESET ROLE')
- // Real Supabase Auth includes this metadata column.
- await db.exec("ALTER TABLE auth.users ADD COLUMN IF NOT EXISTS raw_app_meta_data jsonb DEFAULT '{}'")
- const before=(await db.query('SELECT id,spk_code,version,notes FROM orders ORDER BY id')).rows
- await db.exec("SET printex.legacy_branch='Salatiga'")
- for(const file of readdirSync('supabase/branch-migrations').filter(file=>file.endsWith('.sql')).sort()) await db.exec(readFileSync('supabase/branch-migrations/'+file,'utf8'))
- assert.deepEqual((await db.query('SELECT id,spk_code,version,notes FROM orders ORDER BY id')).rows,before)
- assert.ok((await db.query('SELECT branch_id FROM orders')).rows.every(row=>row.branch_id==='11111111-1111-4111-8111-111111111111'))
- assert.equal((await db.query('SELECT * FROM branch_stock_shortcuts')).rows.length,4)
 })
 
 after(async()=>{await db.close()})
